@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net9.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <PublishAot>true</PublishAot>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <Version>0.0.1</Version>
+        <AssemblyVersion>0.0.1.0</AssemblyVersion>
+        <FileVersion>0.0.1.0</FileVersion>
+        <Title>Meridian Chess Engine</Title>
+        <Authors>Houijasu</Authors>
+        <Company>Houijasu</Company>
+        <Product>Meridian</Product>
+        <Description>A modern chess engine written in C#</Description>
+    </PropertyGroup>
+
+</Project>

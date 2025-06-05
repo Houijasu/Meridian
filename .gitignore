@@ -1,0 +1,69 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio cache/options
+.vs/
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+*.DotSettings.user
+riderModule.iml
+/_ReSharper.Caches/
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# .NET
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# NuGet
+*.nupkg
+*.snupkg
+/packages/
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.log
+perftsuite*.log
+
+# Benchmarking
+BenchmarkDotNet.Artifacts/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+test_*.txt
+test_*.py
+test_*.sh
+
+# UCI logs
+meridian_uci.log
+uci_debug.log
+uci_trace.log
