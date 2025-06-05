@@ -17,8 +17,8 @@ internal class Program
          AutoFlush = true 
       });
       
-      // Use stable UCI implementation based on Stockfish pattern
-      var uci = new StableUciProtocol();
+      // Use UCI implementation
+      var uci = new UciProtocol();
       uci.Run();
    }
 }
