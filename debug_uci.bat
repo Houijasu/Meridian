@@ -1,3 +1,0 @@
-@echo off
-echo Starting UCI Debug Mode...
-dotnet run -c Release -- debug > uci_trace.log 2>&1

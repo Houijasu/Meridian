@@ -69,6 +69,11 @@ test_*.sh
 *.txt
 *.py
 *.sh
+*.bat
+
+# Documentation (except CLAUDE.md)
+*.md
+!CLAUDE.md
 
 # UCI logs
 meridian_uci.log
