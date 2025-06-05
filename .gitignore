@@ -63,6 +63,12 @@ test_*.txt
 test_*.py
 test_*.sh
 
+# Test data files
+*.epd
+*.pgn
+*.txt
+*.py
+
 # UCI logs
 meridian_uci.log
 uci_debug.log
