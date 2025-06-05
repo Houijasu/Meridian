@@ -30,7 +30,8 @@ public class UciProtocol
    private readonly List<Move> moveHistory = [];
    private Position currentPosition = Position.StartingPosition();
    private int hashSizeMB = 128;
-   private SearchEngine searchEngine = new();
+   private int numThreads = 1;
+   private MultiThreadedSearchEngine searchEngine = new(128, 1);
    private CancellationTokenSource? searchCts;
    private Task? searchTask;
    private readonly ConcurrentQueue<string> commandQueue = new();
@@ -218,6 +219,7 @@ public class UciProtocol
       
       // Engine options
       Console.WriteLine("option name Hash type spin default 128 min 1 max 16384");
+      Console.WriteLine($"option name Threads type spin default 1 min 1 max {Environment.ProcessorCount}");
       
       Console.WriteLine("uciok");
    }
@@ -449,14 +451,23 @@ public class UciProtocol
                if (hashSize != hashSizeMB)
                {
                   hashSizeMB = hashSize;
-                  searchEngine = new SearchEngine(hashSizeMB);
+                  searchEngine = new MultiThreadedSearchEngine(hashSizeMB, numThreads);
                }
             }
 
             break;
 
          case "threads":
-            // Ignored for now - single-threaded only
+            if (int.TryParse(optionValue, out var threads))
+            {
+               threads = Math.Clamp(threads, 1, Environment.ProcessorCount);
+               
+               if (threads != numThreads)
+               {
+                  numThreads = threads;
+                  searchEngine = new MultiThreadedSearchEngine(hashSizeMB, numThreads);
+               }
+            }
             break;
 
          case "ponder":
