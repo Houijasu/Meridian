@@ -68,6 +68,7 @@ test_*.sh
 *.pgn
 *.txt
 *.py
+*.sh
 
 # UCI logs
 meridian_uci.log
