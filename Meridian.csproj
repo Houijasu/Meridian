@@ -18,4 +18,11 @@
         <Description>A modern chess engine written in C#</Description>
     </PropertyGroup>
 
+    <ItemGroup>
+        <!-- Exclude the wrapper subdirectory from compilation -->
+        <Compile Remove="MeridianWrapper\**" />
+        <EmbeddedResource Remove="MeridianWrapper\**" />
+        <None Remove="MeridianWrapper\**" />
+    </ItemGroup>
+
 </Project>

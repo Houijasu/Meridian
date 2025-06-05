@@ -46,7 +46,37 @@ public static class Evaluator
       materialScore -= EvaluatePieces(position.BlackQueens, PieceType.Queen, Color.Black, ref positionalScore, position);
       materialScore -= EvaluatePieces(position.BlackKing, PieceType.King, Color.Black, ref positionalScore, position);
 
-      return materialScore + positionalScore;
+      // Calculate endgame phase for tapered evaluation
+      int endgamePhase = Endgame.GetEndgamePhase(in position);
+      int middlegamePhase = 256 - endgamePhase;
+      
+      // Middlegame evaluation components
+      int mgScore = materialScore + positionalScore;
+      
+      // Add pawn structure evaluation
+      var pawnScore = PawnStructure.Evaluate(in position);
+      mgScore += pawnScore;
+      
+      // Add king safety evaluation (primarily middlegame)
+      var kingSafetyScore = KingSafety.Evaluate(in position);
+      mgScore += kingSafetyScore;
+      
+      // Add mobility evaluation
+      var mobilityScore = Mobility.Evaluate(in position);
+      mgScore += mobilityScore;
+      
+      // Endgame evaluation components
+      int egScore = materialScore + positionalScore + pawnScore;
+      
+      // Add endgame-specific evaluation
+      var endgameScore = Endgame.Evaluate(in position);
+      egScore += endgameScore;
+      
+      // Add reduced mobility in endgame
+      egScore += mobilityScore / 2;
+      
+      // Tapered evaluation
+      return (mgScore * middlegamePhase + egScore * endgamePhase) / 256;
    }
 
    [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -107,7 +107,7 @@ public class SearchEngine
                score = AlphaBeta(position, depth, alpha, beta, 0);
             }
             
-            if (!searchInfo.ShouldStop && searchInfo.Nodes > depth * 100) // Only output if we did real work
+            if (!searchInfo.ShouldStop)
             {
                searchInfo.BestScore = score;
                PrintSearchInfo();
@@ -122,6 +122,27 @@ public class SearchEngine
       if (searchInfo.CurrentDepth > 0 && searchInfo.BestMove != Move.Null && !searchInfo.ShouldStop)
       {
          PrintSearchInfo();
+      }
+      
+      // Safety check: if we have no best move after searching, try to find any legal move
+      if (searchInfo.BestMove.IsNull && searchInfo.CurrentDepth > 0)
+      {
+         var moveListSpan = moveBuffer.AsSpan(0, 256);
+         var moveList = new MoveList(moveListSpan);
+         MoveGenerator.GenerateMoves(in position, ref moveList);
+         
+         for (int i = 0; i < moveList.Count; i++)
+         {
+            var move = moveList.Moves[i];
+            var testPos = position;
+            testPos.MakeMove(move);
+            
+            if (!AttackDetection.IsKingInCheck(in testPos, position.SideToMove))
+            {
+               searchInfo.BestMove = move;
+               break;
+            }
+         }
       }
       
       return searchInfo.BestMove;
@@ -169,6 +190,11 @@ public class SearchEngine
             switch (ttEntry.Bound)
             {
                case BoundType.Exact:
+                  if (ply == 0 && ttMove != Move.Null)
+                  {
+                     searchInfo.BestMove = ttMove;
+                     searchInfo.PrincipalVariation[0] = ttMove;
+                  }
                   return ttScore;
 
                case BoundType.Lower:
@@ -181,21 +207,40 @@ public class SearchEngine
             }
 
             if (alpha >= beta)
+            {
+               if (ply == 0 && ttMove != Move.Null)
+               {
+                  searchInfo.BestMove = ttMove;
+                  searchInfo.PrincipalVariation[0] = ttMove;
+               }
                return ttScore;
+            }
          }
       }
 
-      if (depth <= 0)
+      // Extensions
+      var extensions = 0;
+      
+      // Check extension: extend search when in check
+      if (inCheck)
+      {
+         extensions += SearchConstants.CheckExtension;
+      }
+      
+      // Apply extensions
+      var newDepth = depth + extensions;
+      
+      if (newDepth <= 0)
          return Quiescence(in position, alpha, beta, ply);
 
-      if (allowNull && !inCheck && depth >= 3 && ply > 0 && HasNonPawnMaterial(in position))
+      if (allowNull && !inCheck && newDepth >= 3 && ply > 0 && HasNonPawnMaterial(in position))
       {
          var eval = Evaluator.Evaluate(in position);
          
          if (eval >= beta)
          {
             const int R = 3;
-            var nullDepth = depth - R - 1;
+            var nullDepth = newDepth - R - 1;
             
             var nullPosition = position;
             nullPosition.SideToMove = nullPosition.SideToMove.Flip();
@@ -219,7 +264,7 @@ public class SearchEngine
       }
 
       var canUseFutility = !inCheck && 
-                           depth <= SearchConstants.FutilityMaxDepth && 
+                           newDepth <= SearchConstants.FutilityMaxDepth && 
                            Math.Abs(alpha) < SearchConstants.CheckmateThreshold &&
                            Math.Abs(beta) < SearchConstants.CheckmateThreshold;
       
@@ -258,7 +303,28 @@ public class SearchEngine
          {
             searchedAnyMove = true;
             movesSearched++;
-            var score = -AlphaBeta(in newPosition, depth - 1, -beta, -alpha, ply + 1);
+            
+            // Singular extension for TT move
+            var ttExtension = 0;
+            if (newDepth >= SearchConstants.SingularExtensionMinDepth &&
+                !inCheck &&
+                tt.Probe(position.Hash, out var singularEntry) &&
+                singularEntry.Bound != BoundType.Upper &&
+                singularEntry.Depth >= newDepth - 3)
+            {
+               var singularBeta = TranspositionTable.ScoreFromTT(singularEntry.Score, ply) - SearchConstants.SingularExtensionMargin;
+               var singularDepth = newDepth - SearchConstants.SingularExtensionDepthReduction - 1;
+               
+               // Search other moves with reduced window
+               var singularScore = AlphaBetaSingular(in position, singularDepth, singularBeta - 1, singularBeta, ply, ttMove);
+               
+               if (singularScore < singularBeta)
+               {
+                  ttExtension = 1;
+               }
+            }
+            
+            var score = -AlphaBeta(in newPosition, newDepth - 1 + ttExtension, -beta, -alpha, ply + 1);
 
             if (searchInfo.ShouldStop) return 0;
 
@@ -280,7 +346,7 @@ public class SearchEngine
                   if (score >= beta)
                   {
                      tt.Store(position.Hash, bestMove, TranspositionTable.ScoreToTT((short)bestScore, ply),
-                        (byte)depth, BoundType.Lower);
+                        (byte)newDepth, BoundType.Lower);
 
                      return bestScore;
                   }
@@ -309,42 +375,46 @@ public class SearchEngine
              !move.IsCapture && 
              !move.IsPromotion &&
              movesSearched > 1 &&
-             staticEval + FutilityMargins[depth] <= alpha)
+             staticEval + FutilityMargins[newDepth] <= alpha)
          {
             continue;
          }
          
          int score;
          var reduction = 0;
+         var extension = 0;
          
-         if (depth >= SearchConstants.LMRMinDepth && 
+         // Singular extension is handled differently - not applicable here since TT move was already searched
+         // Remove singular extension from this loop as it should only apply to TT move
+         
+         if (newDepth >= SearchConstants.LMRMinDepth && 
              movesSearched > SearchConstants.LMRMinMoves &&
              !inCheck &&
              !move.IsCapture &&
              !move.IsPromotion)
          {
-            reduction = LMRTable[Math.Min(depth, 63), Math.Min(movesSearched, 63)];
-            reduction = Math.Min(depth - 2, Math.Max(reduction, 1));
+            reduction = LMRTable[Math.Min(newDepth, 63), Math.Min(movesSearched, 63)];
+            reduction = Math.Min(newDepth - 2, Math.Max(reduction, 1));
          }
          
          if (movesSearched == 1)
          {
-            score = -AlphaBeta(in newPosition, depth - 1, -beta, -alpha, ply + 1);
+            score = -AlphaBeta(in newPosition, newDepth - 1 + extension, -beta, -alpha, ply + 1);
          }
          else
          {
             if (reduction > 0)
             {
-               score = -AlphaBeta(in newPosition, depth - reduction - 1, -(alpha + 1), -alpha, ply + 1);
+               score = -AlphaBeta(in newPosition, newDepth - reduction - 1 + extension, -(alpha + 1), -alpha, ply + 1);
             }
             else
             {
-               score = -AlphaBeta(in newPosition, depth - 1, -(alpha + 1), -alpha, ply + 1);
+               score = -AlphaBeta(in newPosition, newDepth - 1 + extension, -(alpha + 1), -alpha, ply + 1);
             }
             
             if (score > alpha && score < beta)
             {
-               score = -AlphaBeta(in newPosition, depth - 1, -beta, -alpha, ply + 1);
+               score = -AlphaBeta(in newPosition, newDepth - 1 + extension, -beta, -alpha, ply + 1);
             }
          }
 
@@ -370,11 +440,11 @@ public class SearchEngine
                   if (!move.IsCapture)
                   {
                      moveOrdering.UpdateKillers(move, ply);
-                     moveOrdering.UpdateHistory(move, depth);
+                     moveOrdering.UpdateHistory(move, newDepth);
                   }
                   
                   tt.Store(position.Hash, bestMove, TranspositionTable.ScoreToTT((short)bestScore, ply),
-                     (byte)depth, BoundType.Lower);
+                     (byte)newDepth, BoundType.Lower);
 
                   return bestScore;
                }
@@ -393,7 +463,7 @@ public class SearchEngine
          bestScore >= beta ? BoundType.Lower : BoundType.Exact;
 
       tt.Store(position.Hash, bestMove, TranspositionTable.ScoreToTT((short)bestScore, ply),
-         (byte)depth, bound);
+         (byte)newDepth, bound);
 
       return bestScore;
    }
@@ -453,6 +523,56 @@ public class SearchEngine
       }
 
       return alpha;
+   }
+   
+   /// <summary>
+   ///    Special alpha-beta search for singular extension detection.
+   ///    Searches all moves except the excluded move to see if any reach the given beta.
+   /// </summary>
+   private int AlphaBetaSingular(in Position position, int depth, int alpha, int beta, int ply, Move excludedMove)
+   {
+      searchInfo.Nodes++;
+      
+      if (depth <= 0)
+         return Quiescence(in position, alpha, beta, ply);
+         
+      var moveListSpan = moveBuffer.AsSpan(ply * 256, 256);
+      var moveList = new MoveList(moveListSpan);
+      MoveGenerator.GenerateMoves(in position, ref moveList);
+      
+      var bestScore = -SearchConstants.Infinity;
+      
+      for (var i = 0; i < moveList.Count; i++)
+      {
+         var move = moveList.Moves[i];
+         
+         // Skip the excluded move
+         if (move.Equals(excludedMove))
+            continue;
+            
+         var newPosition = position;
+         newPosition.MakeMove(move);
+         
+         if (AttackDetection.IsKingInCheck(in newPosition, position.SideToMove))
+            continue;
+            
+         var score = -AlphaBeta(in newPosition, depth - 1, -beta, -alpha, ply + 1);
+         
+         if (searchInfo.ShouldStop) return 0;
+         
+         if (score > bestScore)
+         {
+            bestScore = score;
+            
+            if (score >= beta)
+               return beta;
+               
+            if (score > alpha)
+               alpha = score;
+         }
+      }
+      
+      return bestScore;
    }
 
    /// <summary>

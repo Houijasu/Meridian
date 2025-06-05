@@ -59,4 +59,24 @@ public static class SearchConstants
     ///    Maximum depth for futility pruning.
     /// </summary>
     public const int FutilityMaxDepth = 6;
+    
+    /// <summary>
+    ///    Extension amount for check positions.
+    /// </summary>
+    public const int CheckExtension = 1;
+    
+    /// <summary>
+    ///    Minimum depth for singular extension.
+    /// </summary>
+    public const int SingularExtensionMinDepth = 6;
+    
+    /// <summary>
+    ///    Depth reduction for singular extension search.
+    /// </summary>
+    public const int SingularExtensionDepthReduction = 3;
+    
+    /// <summary>
+    ///    Margin for singular extension detection (in centipawns).
+    /// </summary>
+    public const int SingularExtensionMargin = 50;
 }

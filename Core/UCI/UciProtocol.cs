@@ -39,6 +39,7 @@ public class UciProtocol
    private volatile bool suppressBestMove;
    private readonly object disposeLock = new();
    private volatile bool isDisposing;
+   private readonly AutoResetEvent commandAvailable = new(false);
 
 
    /// <summary>
@@ -57,25 +58,29 @@ public class UciProtocol
       // Main command processing loop
       while (!shouldQuit)
       {
-         // Process any pending commands
-         while (commandQueue.TryDequeue(out var command))
+         // Wait for a command or timeout after 100ms to check shouldQuit
+         if (commandAvailable.WaitOne(100))
          {
-            if (command == "quit")
+            // Process all pending commands
+            while (commandQueue.TryDequeue(out var command))
             {
-               shouldQuit = true;
-               StopSearchAndCleanup(suppressOutput: true);
-               break;
+               if (command == "quit")
+               {
+                  shouldQuit = true;
+                  StopSearchAndCleanup(suppressOutput: true);
+                  break;
+               }
+               
+               ProcessCommand(command);
             }
-            
-            ProcessCommand(command);
          }
-         
-         // Small delay to prevent busy waiting
-         Thread.Sleep(1);
       }
       
       // Wait for input thread to finish
       inputThread.Join(1000);
+      
+      // Dispose of the event
+      commandAvailable.Dispose();
    }
    
    /// <summary>
@@ -89,6 +94,7 @@ public class UciProtocol
          while ((input = Console.ReadLine()) != null && !shouldQuit)
          {
             commandQueue.Enqueue(input);
+            commandAvailable.Set(); // Signal that a command is available
             if (input == "quit")
                break;
          }
@@ -184,7 +190,11 @@ public class UciProtocol
             // Debug mode on/off - ignored for now
             break;
 
-         // Non-standard commands commented out for Fritz compatibility
+         // Non-standard commands (for debugging)
+         case "eval":
+            HandleEval();
+            break;
+            
          // case "d":
          // case "display":
          //    DisplayPosition();
@@ -203,7 +213,7 @@ public class UciProtocol
    private void HandleUci()
    {
       // Fritz is very strict about UCI format - keep it simple
-      Console.WriteLine($"id name {EngineName}");
+      Console.WriteLine($"id name {EngineName} {EngineVersion}");
       Console.WriteLine($"id author {EngineAuthor}");
       
       // Engine options
@@ -292,6 +302,7 @@ public class UciProtocol
       
       // Reset suppress flag after position is updated
       suppressBestMove = false;
+      
    }
 
    /// <summary>
@@ -477,6 +488,53 @@ public class UciProtocol
    {
       suppressBestMove = false; // GUI explicitly wants bestmove
       StopSearchAndCleanup(suppressOutput: false);
+   }
+   
+   /// <summary>
+   ///    Handles the eval command (non-standard debug command).
+   /// </summary>
+   private void HandleEval()
+   {
+      var score = Evaluation.Evaluator.Evaluate(in currentPosition);
+      var absoluteScore = Evaluation.Evaluator.EvaluateAbsolute(in currentPosition);
+      
+      Console.WriteLine($"Evaluation: {score} cp (from side to move)");
+      Console.WriteLine($"Absolute evaluation: {absoluteScore} cp (positive = white advantage)");
+      Console.WriteLine();
+      
+      // Show evaluation breakdown
+      var materialScore = 0;
+      materialScore += Bitboard.PopCount(currentPosition.WhitePawns) * 100;
+      materialScore += Bitboard.PopCount(currentPosition.WhiteKnights) * 320;
+      materialScore += Bitboard.PopCount(currentPosition.WhiteBishops) * 330;
+      materialScore += Bitboard.PopCount(currentPosition.WhiteRooks) * 500;
+      materialScore += Bitboard.PopCount(currentPosition.WhiteQueens) * 900;
+      
+      materialScore -= Bitboard.PopCount(currentPosition.BlackPawns) * 100;
+      materialScore -= Bitboard.PopCount(currentPosition.BlackKnights) * 320;
+      materialScore -= Bitboard.PopCount(currentPosition.BlackBishops) * 330;
+      materialScore -= Bitboard.PopCount(currentPosition.BlackRooks) * 500;
+      materialScore -= Bitboard.PopCount(currentPosition.BlackQueens) * 900;
+      
+      Console.WriteLine($"Material balance: {materialScore} cp");
+      
+      var pawnScore = Evaluation.PawnStructure.Evaluate(in currentPosition);
+      Console.WriteLine($"Pawn structure: {pawnScore} cp");
+      
+      var kingSafetyScore = Evaluation.KingSafety.Evaluate(in currentPosition);
+      Console.WriteLine($"King safety: {kingSafetyScore} cp");
+      
+      var mobilityScore = Evaluation.Mobility.Evaluate(in currentPosition);
+      Console.WriteLine($"Mobility: {mobilityScore} cp");
+      
+      if (Evaluation.Endgame.IsEndgame(in currentPosition))
+      {
+         var endgameScore = Evaluation.Endgame.Evaluate(in currentPosition);
+         Console.WriteLine($"Endgame evaluation: {endgameScore} cp");
+      }
+      
+      var phase = Evaluation.Endgame.GetEndgamePhase(in currentPosition);
+      Console.WriteLine($"Game phase: {phase}/256 endgame ({256-phase}/256 middlegame)");
    }
 
    /// <summary>
@@ -724,8 +782,11 @@ public class UciProtocol
                var searchTime = infinite ? int.MaxValue : moveTime;
                var bestMove = searchEngine.Search(searchPosition, depth, searchTime, token);
                
+               
+               
                // Check if we should output the result
-               if (!token.IsCancellationRequested && !suppressBestMove)
+               // Always output bestmove unless explicitly suppressed
+               if (!suppressBestMove)
                {
                   OutputBestMove(bestMove);
                }
@@ -760,6 +821,7 @@ public class UciProtocol
    /// </summary>
    private void OutputBestMove(Move move)
    {
+      
       if (move != Move.Null)
          Console.WriteLine($"bestmove {move.ToAlgebraic()}");
       else
