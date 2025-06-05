@@ -13,69 +13,31 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
-# Visual Studio cache/options
+# Visual Studio
 .vs/
-
-# JetBrains Rider
-.idea/
-*.sln.iml
-*.DotSettings.user
-riderModule.iml
-/_ReSharper.Caches/
-
-# User-specific files
-*.rsuser
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
 
-# .NET
-project.lock.json
-project.fragment.lock.json
-artifacts/
+# JetBrains Rider
+.idea/
+*.sln.iml
+*.DotSettings.user
 
 # NuGet
 *.nupkg
 *.snupkg
 /packages/
 
-# Test results
-[Tt]est[Rr]esult*/
-[Bb]uild[Ll]og.*
-*.log
-perftsuite*.log
-
-# Benchmarking
-BenchmarkDotNet.Artifacts/
-
-# macOS
-.DS_Store
-
-# Windows
-Thumbs.db
-ehthumbs.db
-
-# Temporary files
-*.tmp
-*.temp
-test_*.txt
-test_*.py
-test_*.sh
-
-# Test data files
+# Files to exclude
 *.epd
 *.pgn
 *.txt
 *.py
 *.sh
 *.bat
-
-# Documentation (except CLAUDE.md)
 *.md
-!CLAUDE.md
-
-# UCI logs
-meridian_uci.log
-uci_debug.log
-uci_trace.log
+*.log
+*.tmp
+*.temp
