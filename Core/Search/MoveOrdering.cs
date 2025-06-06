@@ -67,7 +67,7 @@ public sealed class MoveOrdering
     /// <summary>
     /// Scores moves for ordering. Higher scores are searched first.
     /// </summary>
-    public void ScoreMoves(ReadOnlySpan<Move> moves, Span<ScoredMove> scoredMoves, int moveCount, Move ttMove, int ply)
+    public void ScoreMoves(ReadOnlySpan<Move> moves, Span<ScoredMove> scoredMoves, int moveCount, Move ttMove, int ply, in Position position)
     {
         for (int i = 0; i < moveCount; i++)
         {
@@ -80,7 +80,18 @@ public sealed class MoveOrdering
             }
             else if (move.IsCapture)
             {
-                score = 900000 + GetMVVLVAScore(move);
+                // Use SEE for capture ordering
+                var seeValue = StaticExchangeEvaluation.Evaluate(in position, move);
+                if (seeValue >= 0)
+                {
+                    // Good captures ordered by SEE value and MVV/LVA as tiebreaker
+                    score = 900000 + seeValue * 1000 + GetMVVLVAScore(move);
+                }
+                else
+                {
+                    // Bad captures (losing exchanges) scored low
+                    score = -100000 + seeValue;
+                }
             }
             else if (move.IsPromotion)
             {

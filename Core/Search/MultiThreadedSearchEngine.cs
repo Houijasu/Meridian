@@ -62,6 +62,15 @@ public class MultiThreadedSearchEngine
    }
    
    /// <summary>
+   /// Gets the ponder move (expected opponent response).
+   /// </summary>
+   public Move GetPonderMove()
+   {
+      var (_, ponder, _, _) = sharedInfo.GetBestMoveWithPonder();
+      return ponder;
+   }
+   
+   /// <summary>
    /// Searches for the best move using multiple threads.
    /// </summary>
    public Move Search(Position position, int maxDepth, int maxTime = int.MaxValue, CancellationToken cancellationToken = default)

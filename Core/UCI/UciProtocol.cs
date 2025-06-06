@@ -41,6 +41,12 @@ public class UciProtocol
    private readonly object disposeLock = new();
    private volatile bool isDisposing;
    private readonly AutoResetEvent commandAvailable = new(false);
+   
+   // Pondering state
+   private volatile bool isPondering;
+   private bool ponderEnabled = false;
+   private Move ponderMove = Move.Null;
+   private int ponderTimeRemaining;
 
 
    /// <summary>
@@ -137,6 +143,10 @@ public class UciProtocol
             case "stop":
                HandleStop();
                return;
+               
+            case "ponderhit":
+               HandlePonderHit();
+               return;
 
             case "quit":
                return;
@@ -182,6 +192,10 @@ public class UciProtocol
          case "stop":
             HandleStop();
             break;
+            
+         case "ponderhit":
+            HandlePonderHit();
+            break;
 
          case "setoption":
             HandleSetOption(tokens);
@@ -220,6 +234,7 @@ public class UciProtocol
       // Engine options
       Console.WriteLine("option name Hash type spin default 128 min 1 max 16384");
       Console.WriteLine($"option name Threads type spin default 1 min 1 max {Environment.ProcessorCount}");
+      Console.WriteLine("option name Ponder type check default false");
       
       Console.WriteLine("uciok");
    }
@@ -234,6 +249,8 @@ public class UciProtocol
       moveHistory.Clear();
       searchEngine.ClearTT();
       searchEngine.ClearMoveOrdering();
+      isPondering = false;
+      ponderMove = Move.Null;
    }
 
    /// <summary>
@@ -321,6 +338,7 @@ public class UciProtocol
       var blackInc = 0;
       var movesToGo = 40; // Default moves to time control
       var infinite = false;
+      var ponder = false;
 
       for (var i = 1; i < tokens.Length; i++)
       {
@@ -392,6 +410,10 @@ public class UciProtocol
             case "infinite":
                infinite = true;
                break;
+               
+            case "ponder":
+               ponder = true;
+               break;
          }
       }
 
@@ -421,7 +443,17 @@ public class UciProtocol
       StopSearchAndCleanup(suppressOutput: false);
       
       // Start new search
-      StartNewSearch(currentPosition, depth, moveTime, infinite);
+      if (ponder)
+      {
+         isPondering = true;
+         ponderTimeRemaining = moveTime;
+         StartNewSearch(currentPosition, depth, int.MaxValue, true); // Ponder with infinite time until ponderhit
+      }
+      else
+      {
+         isPondering = false;
+         StartNewSearch(currentPosition, depth, moveTime, infinite);
+      }
    }
 
    /// <summary>
@@ -471,7 +503,10 @@ public class UciProtocol
             break;
 
          case "ponder":
-            // Ignored for now - no pondering support
+            if (bool.TryParse(optionValue, out var enablePonder))
+            {
+               ponderEnabled = enablePonder;
+            }
             break;
       }
    }
@@ -498,7 +533,34 @@ public class UciProtocol
    private void HandleStop()
    {
       suppressBestMove = false; // GUI explicitly wants bestmove
+      isPondering = false;
       StopSearchAndCleanup(suppressOutput: false);
+   }
+   
+   /// <summary>
+   ///    Handles the ponderhit command.
+   /// </summary>
+   private void HandlePonderHit()
+   {
+      if (!isPondering)
+         return;
+         
+      isPondering = false;
+      
+      // Continue the search with the remaining time
+      // The search is already running, we just need to set a time limit
+      lock (searchLock)
+      {
+         if (searchTask != null && !searchTask.IsCompleted && searchCts != null)
+         {
+            // Create a new timer task to stop the search after the remaining time
+            Task.Run(async () =>
+            {
+               await Task.Delay(ponderTimeRemaining);
+               searchEngine.StopSearch();
+            });
+         }
+      }
    }
    
    /// <summary>
@@ -792,14 +854,13 @@ public class UciProtocol
                // For infinite search, use a very long time and rely on stop command
                var searchTime = infinite ? int.MaxValue : moveTime;
                var bestMove = searchEngine.Search(searchPosition, depth, searchTime, token);
-               
-               
+               var ponderMove = searchEngine.GetPonderMove();
                
                // Check if we should output the result
                // Always output bestmove unless explicitly suppressed
                if (!suppressBestMove)
                {
-                  OutputBestMove(bestMove);
+                  OutputBestMove(bestMove, ponderMove);
                }
             }
             catch (OperationCanceledException)
@@ -808,7 +869,8 @@ public class UciProtocol
                if (!suppressBestMove)
                {
                   var currentBestMove = searchEngine.GetBestMove();
-                  OutputBestMove(currentBestMove);
+                  var currentPonderMove = searchEngine.GetPonderMove();
+                  OutputBestMove(currentBestMove, currentPonderMove);
                }
             }
             catch (Exception ex)
@@ -830,11 +892,15 @@ public class UciProtocol
    /// <summary>
    ///    Outputs the best move to the GUI.
    /// </summary>
-   private void OutputBestMove(Move move)
+   private void OutputBestMove(Move move, Move ponderMove = default)
    {
-      
       if (move != Move.Null)
-         Console.WriteLine($"bestmove {move.ToAlgebraic()}");
+      {
+         if (!ponderMove.IsNull)
+            Console.WriteLine($"bestmove {move.ToAlgebraic()} ponder {ponderMove.ToAlgebraic()}");
+         else
+            Console.WriteLine($"bestmove {move.ToAlgebraic()}");
+      }
       else
          Console.WriteLine("bestmove 0000");
       Console.Out.Flush();

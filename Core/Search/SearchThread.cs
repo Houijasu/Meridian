@@ -1,5 +1,6 @@
 namespace Meridian.Core.Search;
 
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Evaluation;
 using MoveGeneration;
@@ -97,7 +98,7 @@ public class SearchThread
             beta = bestScore + aspirationDelta;
          }
          
-         int score = AlphaBeta(rootPosition, d, alpha, beta, 0);
+         int score = AlphaBeta(rootPosition, d, alpha, beta, 0, true, Square.None);
          
          if (sharedInfo.ShouldStop || cancellationToken.IsCancellationRequested)
             break;
@@ -108,7 +109,7 @@ public class SearchThread
             aspirationDelta = Math.Min(aspirationDelta * 2, 500);
             alpha = -SearchConstants.Infinity;
             beta = SearchConstants.Infinity;
-            score = AlphaBeta(rootPosition, d, alpha, beta, 0);
+            score = AlphaBeta(rootPosition, d, alpha, beta, 0, true, Square.None);
          }
          
          if (!sharedInfo.ShouldStop && !cancellationToken.IsCancellationRequested)
@@ -116,8 +117,15 @@ public class SearchThread
             bestScore = score;
             bestMove = localInfo.BestMove;
             
+            // Extract ponder move if we have a best move
+            Move ponderMove = Move.Null;
+            if (!bestMove.IsNull)
+            {
+               ponderMove = ExtractPonderMove(rootPosition, bestMove);
+            }
+            
             // Update shared best move if this is better
-            sharedInfo.UpdateBestMove(bestMove, bestScore, d, ThreadId);
+            sharedInfo.UpdateBestMove(bestMove, bestScore, d, ThreadId, ponderMove);
             
             // Report progress from thread 0 only
             if (ThreadId == 0)
@@ -146,7 +154,7 @@ public class SearchThread
    /// <summary>
    /// Alpha-beta search implementation (similar to single-threaded version).
    /// </summary>
-   private int AlphaBeta(in Position position, int depth, int alpha, int beta, int ply, bool allowNull = true)
+   private int AlphaBeta(in Position position, int depth, int alpha, int beta, int ply, bool allowNull = true, Square lastCaptureSquare = Square.None)
    {
       localInfo.Nodes++;
       
@@ -242,7 +250,7 @@ public class SearchThread
             if (position.EnPassantSquare != Square.None)
                nullPosition.Hash ^= Zobrist.GetEnPassantKey(position.EnPassantSquare);
                
-            int nullScore = -AlphaBeta(in nullPosition, nullDepth, -beta, -beta + 1, ply + 1, false);
+            int nullScore = -AlphaBeta(in nullPosition, nullDepth, -beta, -beta + 1, ply + 1, false, Square.None);
             
             if (sharedInfo.ShouldStop) return 0;
             
@@ -253,6 +261,15 @@ public class SearchThread
                return nullScore;
             }
          }
+      }
+      
+      // Static evaluation for pruning decisions
+      int staticEval = 0;
+      bool improving = false;
+      if (!inCheck)
+      {
+         staticEval = Evaluator.Evaluate(in position);
+         improving = staticEval > alpha - 50;
       }
       
       // Move generation
@@ -267,7 +284,7 @@ public class SearchThread
       
       // Score and sort moves
       var scoredMovesSpan = scoredMoveBuffer.AsSpan(ply * 256, moveList.Count);
-      moveOrdering.ScoreMoves(moveList.Moves, scoredMovesSpan, moveList.Count, ttMove, ply);
+      moveOrdering.ScoreMoves(moveList.Moves, scoredMovesSpan, moveList.Count, ttMove, ply, in position);
       MoveOrdering.SortMoves(scoredMovesSpan, moveList.Count);
       
       
@@ -290,8 +307,42 @@ public class SearchThread
          searchedAnyMove = true;
          movesSearched++;
          
+         // SEE pruning: skip bad captures in non-PV nodes
+         if (move.IsCapture && 
+             newDepth < 4 && 
+             !inCheck &&
+             movesSearched > 0 &&
+             !StaticExchangeEvaluation.SeeGreaterOrEqual(in position, move, 0))
+         {
+            continue;
+         }
+         
+         // Late Move Pruning: skip quiet moves late in move list at shallow depths
+         if (!inCheck &&
+             newDepth <= SearchConstants.LMPMaxDepth &&
+             movesSearched >= SearchConstants.LMPMoveCount[newDepth] + (improving ? SearchConstants.LMPImprovingBonus : 0) &&
+             !move.IsCapture &&
+             !move.IsPromotion &&
+             bestScore > -SearchConstants.CheckmateThreshold)
+         {
+            continue;
+         }
+         
          int score;
          int reduction = 0;
+         int extension = 0;
+         
+         // Recapture extension: extend when capturing back on the same square
+         if (move.IsCapture && move.To == lastCaptureSquare)
+         {
+            extension += SearchConstants.RecaptureExtension;
+         }
+         
+         // Passed pawn extension: extend passed pawns pushing to 7th rank
+         if (IsPassedPawnPush7th(in position, move))
+         {
+            extension += SearchConstants.PassedPawnExtension;
+         }
          
          // Late move reductions
          if (newDepth >= SearchConstants.LMRMinDepth && 
@@ -305,17 +356,17 @@ public class SearchThread
          // Principal variation search
          if (movesSearched == 1)
          {
-            score = -AlphaBeta(in newPosition, newDepth - 1, -beta, -alpha, ply + 1);
+            score = -AlphaBeta(in newPosition, newDepth - 1 + extension, -beta, -alpha, ply + 1, true, move.IsCapture ? move.To : Square.None);
          }
          else
          {
             // Search with null window
-            score = -AlphaBeta(in newPosition, newDepth - reduction - 1, -(alpha + 1), -alpha, ply + 1);
+            score = -AlphaBeta(in newPosition, newDepth - reduction - 1 + extension, -(alpha + 1), -alpha, ply + 1, true, move.IsCapture ? move.To : Square.None);
             
             // Re-search if it fails high
             if (score > alpha && score < beta)
             {
-               score = -AlphaBeta(in newPosition, newDepth - 1, -beta, -alpha, ply + 1);
+               score = -AlphaBeta(in newPosition, newDepth - 1 + extension, -beta, -alpha, ply + 1, true, move.IsCapture ? move.To : Square.None);
             }
          }
          
@@ -405,12 +456,16 @@ public class SearchThread
       
       // Score and sort captures
       var scoredMovesSpan = scoredMoveBuffer.AsSpan(ply * 256, moveList.Count);
-      moveOrdering.ScoreMoves(moveList.Moves, scoredMovesSpan, moveList.Count, Move.Null, ply);
+      moveOrdering.ScoreMoves(moveList.Moves, scoredMovesSpan, moveList.Count, Move.Null, ply, in position);
       MoveOrdering.SortMoves(scoredMovesSpan, moveList.Count);
       
       for (int i = 0; i < moveList.Count; i++)
       {
          Move move = scoredMovesSpan[i].Move;
+         
+         // SEE pruning in quiescence: skip bad captures
+         if (!StaticExchangeEvaluation.SeeGreaterOrEqual(in position, move, 0))
+            continue;
          
          Position newPosition = position;
          newPosition.MakeMove(move);
@@ -453,5 +508,89 @@ public class SearchThread
          return (position.BlackKnights | position.BlackBishops | 
                 position.BlackRooks | position.BlackQueens) != 0;
       }
+   }
+   
+   /// <summary>
+   /// Checks if a move is a passed pawn push to the 7th rank.
+   /// </summary>
+   [MethodImpl(MethodImplOptions.AggressiveInlining)]
+   private static bool IsPassedPawnPush7th(in Position position, Move move)
+   {
+      // Check if it's a pawn move
+      if (move.Piece.Type() != PieceType.Pawn || move.IsCapture)
+         return false;
+         
+      var to = move.To;
+      var toRank = to.Rank();
+      
+      // Check if pushing to 7th rank (rank 6 for white, rank 1 for black)
+      if (position.SideToMove == Color.White && toRank != 6)
+         return false;
+      if (position.SideToMove == Color.Black && toRank != 1)
+         return false;
+         
+      // Check if the pawn is passed
+      var file = to.File();
+      var enemyPawns = position.SideToMove == Color.White ? position.BlackPawns : position.WhitePawns;
+      
+      // Create mask for enemy pawns that could stop this pawn
+      ulong passMask = 0;
+      if (position.SideToMove == Color.White)
+      {
+         // Check files and ranks ahead
+         for (int r = toRank + 1; r <= 7; r++)
+         {
+            for (int f = Math.Max(0, file - 1); f <= Math.Min(7, file + 1); f++)
+            {
+               passMask |= 1UL << (r * 8 + f);
+            }
+         }
+      }
+      else
+      {
+         // Check files and ranks ahead (for black, moving down)
+         for (int r = toRank - 1; r >= 0; r--)
+         {
+            for (int f = Math.Max(0, file - 1); f <= Math.Min(7, file + 1); f++)
+            {
+               passMask |= 1UL << (r * 8 + f);
+            }
+         }
+      }
+      
+      // If no enemy pawns can stop this pawn, it's passed
+      return (passMask & enemyPawns) == 0;
+   }
+   
+   /// <summary>
+   /// Extracts the ponder move from the transposition table.
+   /// </summary>
+   private Move ExtractPonderMove(Position position, Move bestMove)
+   {
+      if (bestMove.IsNull)
+         return Move.Null;
+         
+      // Make the best move
+      var ponderPosition = position;
+      ponderPosition.MakeMove(bestMove);
+      
+      // Look for the expected response in the TT
+      if (tt.Probe(ponderPosition.Hash, out var entry) && entry.BestMove != Move.Null)
+      {
+         // Verify the move is legal
+         Span<Move> buffer = stackalloc Move[256];
+         var moveList = new MoveList(buffer);
+         MoveGenerator.GenerateMoves(in ponderPosition, ref moveList);
+         
+         for (int i = 0; i < moveList.Count; i++)
+         {
+            if (moveList.Moves[i].Equals(entry.BestMove))
+            {
+               return entry.BestMove;
+            }
+         }
+      }
+      
+      return Move.Null;
    }
 }

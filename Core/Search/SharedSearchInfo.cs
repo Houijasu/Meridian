@@ -15,6 +15,7 @@ public class SharedSearchInfo
    private int bestScore = -SearchConstants.Infinity;
    private int bestDepth;
    private int bestThreadId = -1;
+   private Move ponderMove = Move.Null;
    
    // Timing
    private readonly Stopwatch timer = new();
@@ -42,6 +43,7 @@ public class SharedSearchInfo
          bestScore = -SearchConstants.Infinity;
          bestDepth = 0;
          bestThreadId = -1;
+         ponderMove = Move.Null;
          maxTime = maxTimeMs;
          timer.Restart();
       }
@@ -50,7 +52,7 @@ public class SharedSearchInfo
    /// <summary>
    /// Updates the best move if the new one is better.
    /// </summary>
-   public void UpdateBestMove(Move move, int score, int depth, int threadId)
+   public void UpdateBestMove(Move move, int score, int depth, int threadId, Move ponder = default)
    {
       lock (syncLock)
       {
@@ -64,6 +66,7 @@ public class SharedSearchInfo
             bestScore = score;
             bestDepth = depth;
             bestThreadId = threadId;
+            ponderMove = ponder;
          }
       }
    }
@@ -76,6 +79,17 @@ public class SharedSearchInfo
       lock (syncLock)
       {
          return (bestMove, bestScore, bestDepth);
+      }
+   }
+   
+   /// <summary>
+   /// Gets the current best move with ponder move.
+   /// </summary>
+   public (Move move, Move ponder, int score, int depth) GetBestMoveWithPonder()
+   {
+      lock (syncLock)
+      {
+         return (bestMove, ponderMove, bestScore, bestDepth);
       }
    }
    

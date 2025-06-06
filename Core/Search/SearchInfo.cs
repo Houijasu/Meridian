@@ -51,6 +51,11 @@ public class SearchInfo
     ///    Score of the best move.
     /// </summary>
     public int BestScore { get; set; }
+    
+    /// <summary>
+    ///    Ponder move (expected opponent response).
+    /// </summary>
+    public Move PonderMove { get; set; }
 
     /// <summary>
     ///    Principal variation (best line).
