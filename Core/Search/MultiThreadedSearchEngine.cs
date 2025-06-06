@@ -157,12 +157,25 @@ public class MultiThreadedSearchEngine
       long nps = elapsed > 0 ? nodes * 1000 / elapsed : nodes * 1000;
       int hashFull = tt.GetHashFull();
       
-      if (bestDepth > 0 && !bestMove.IsNull)
+      if (bestDepth > 0)
       {
          // Get the full PV from shared info
          string pvString = sharedInfo.BuildPvString();
          
-         Console.WriteLine($"info depth {bestDepth} score cp {bestScore} " +
+         // Format score - use mate notation for checkmate scores
+         string scoreStr;
+         if (Math.Abs(bestScore) >= SearchConstants.CheckmateThreshold)
+         {
+            // Convert to mate in N moves
+            int mateIn = (SearchConstants.Checkmate - Math.Abs(bestScore) + 1) / 2;
+            scoreStr = bestScore > 0 ? $"mate {mateIn}" : $"mate -{mateIn}";
+         }
+         else
+         {
+            scoreStr = $"cp {bestScore}";
+         }
+         
+         Console.WriteLine($"info depth {bestDepth} score {scoreStr} " +
                           $"nodes {nodes} nps {nps} time {elapsed} " +
                           $"hashfull {hashFull} pv {pvString}");
          Console.Out.Flush();

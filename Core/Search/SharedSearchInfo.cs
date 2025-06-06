@@ -40,7 +40,7 @@ public class SharedSearchInfo
       lock (syncLock)
       {
          shouldStop = false;
-         totalNodes = 0;
+         totalNodes = 1; // Start with 1 to ensure GUI sees non-zero
          bestMove = Move.Null;
          bestScore = -SearchConstants.Infinity;
          bestDepth = 0;

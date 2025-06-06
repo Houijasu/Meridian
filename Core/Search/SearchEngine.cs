@@ -79,6 +79,9 @@ public class SearchEngine(int ttSizeMB = 128)
       var alpha = -SearchConstants.Infinity;
       var beta = SearchConstants.Infinity;
 
+      // Before starting search, ensure we can at least report something
+      searchInfo.Nodes = 1; // Ensure at least 1 node for GUI
+      
       for (var depth = 1; depth <= searchInfo.MaxDepth; depth++)
       {
          if (searchInfo.ShouldStop || cancellationToken.IsCancellationRequested) 
@@ -109,18 +112,18 @@ public class SearchEngine(int ttSizeMB = 128)
             
             searchInfo.BestScore = score;
             aspirationDelta = 50;
+            
+            // Always print info for completed depths
+            // Even if no move found (e.g., checkmate), we should report the score
+            PrintSearchInfo();
          }
-         
-         // Always print info for completed depths
-         // Even if no move found (e.g., checkmate), we should report the score
-         PrintSearchInfo();
       }
 
       searchInfo.Timer.Stop();
       
-      // Output final info if we completed at least one depth
+      // Always output final info if we completed at least one depth
       // Even if no move found (e.g., checkmate), we should report the score
-      if (searchInfo.CurrentDepth > 0 && !searchInfo.ShouldStop)
+      if (searchInfo.CurrentDepth > 0)
       {
          PrintSearchInfo();
       }
