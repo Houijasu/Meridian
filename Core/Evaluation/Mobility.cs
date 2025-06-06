@@ -178,7 +178,7 @@ public static class Mobility
             int newRank = rank + rankOffsets[i];
             int newFile = file + fileOffsets[i];
             
-            if (newRank >= 0 && newRank <= 7 && newFile >= 0 && newFile <= 7)
+            if (newRank is >= 0 and <= 7 && newFile is >= 0 and <= 7)
             {
                 moves |= 1UL << (newRank * 8 + newFile);
             }

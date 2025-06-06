@@ -10,7 +10,7 @@ public sealed class MoveOrdering
 {
     private static readonly int[] MVVLVATable = new int[12 * 12];
     private readonly Move[,] killerMoves = new Move[SearchConstants.MaxPly, 2];
-    private readonly int[,] historyTable = new int[12, 64];
+    private readonly int[,] historyTable = new int[64, 64]; // Butterfly table [from][to]
     private readonly Move[,] counterMoves = new Move[12, 64];
     
     static MoveOrdering()
@@ -97,13 +97,37 @@ public sealed class MoveOrdering
             {
                 score = 800000 + (int)move.GetPromotionType() * 100;
             }
-            else if (IsKillerMove(move, ply))
+            else if (move.Equals(killerMoves[ply, 0]))
             {
-                score = 700000;
+                score = 700000; // First killer from current ply
+            }
+            else if (move.Equals(killerMoves[ply, 1]))
+            {
+                score = 690000; // Second killer from current ply
+            }
+            else if (ply >= 2 && (move.Equals(killerMoves[ply - 2, 0]) || move.Equals(killerMoves[ply - 2, 1])))
+            {
+                score = 680000; // Killer from 2 plies ago
             }
             else
             {
+                // Default to history score
                 score = GetHistoryScore(move);
+                
+                // Check counter move (if we have a previous move from killers)
+                if (ply > 0)
+                {
+                    // Use the first killer from previous ply as an approximation of last move
+                    var prevMove = killerMoves[ply - 1, 0];
+                    if (!prevMove.IsNull)
+                    {
+                        var counterMove = GetCounterMove(prevMove);
+                        if (move.Equals(counterMove))
+                        {
+                            score = 670000; // Counter move
+                        }
+                    }
+                }
             }
             
             scoredMoves[i] = new ScoredMove(move, score);
@@ -171,16 +195,23 @@ public sealed class MoveOrdering
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsKillerMove(Move move, int ply)
     {
-        return move.Equals(killerMoves[ply, 0]) || move.Equals(killerMoves[ply, 1]);
+        // Check killers from current ply
+        if (move.Equals(killerMoves[ply, 0]) || move.Equals(killerMoves[ply, 1]))
+            return true;
+            
+        // Also check killers from 2 plies ago (same side to move)
+        if (ply >= 2)
+        {
+            return move.Equals(killerMoves[ply - 2, 0]) || move.Equals(killerMoves[ply - 2, 1]);
+        }
+        
+        return false;
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int GetHistoryScore(Move move)
     {
-        int pieceIndex = PieceToIndex(move.Piece);
-        if (pieceIndex < 0) return 0;
-        
-        return historyTable[pieceIndex, (int)move.To];
+        return historyTable[(int)move.From, (int)move.To];
     }
     
     /// <summary>
@@ -202,12 +233,29 @@ public sealed class MoveOrdering
     {
         if (!move.IsCapture)
         {
-            int pieceIndex = PieceToIndex(move.Piece);
-            if (pieceIndex >= 0)
+            historyTable[(int)move.From, (int)move.To] += depth * depth;
+            
+            if (historyTable[(int)move.From, (int)move.To] > 100000)
             {
-                historyTable[pieceIndex, (int)move.To] += depth * depth;
+                AgeHistoryTable();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Updates history malus for moves that failed to cause a cutoff.
+    /// </summary>
+    public void UpdateHistoryMalus(ReadOnlySpan<Move> quietMoves, int quietCount, int depth)
+    {
+        for (int i = 0; i < quietCount; i++)
+        {
+            var move = quietMoves[i];
+            if (!move.IsCapture)
+            {
+                historyTable[(int)move.From, (int)move.To] -= depth * depth;
                 
-                if (historyTable[pieceIndex, (int)move.To] > 100000)
+                // Ensure history scores don't go too negative
+                if (historyTable[(int)move.From, (int)move.To] < -100000)
                 {
                     AgeHistoryTable();
                 }
@@ -248,7 +296,7 @@ public sealed class MoveOrdering
     /// </summary>
     private void AgeHistoryTable()
     {
-        for (int i = 0; i < 12; i++)
+        for (int i = 0; i < 64; i++)
         {
             for (int j = 0; j < 64; j++)
             {

@@ -27,11 +27,10 @@ public class UciProtocol
     /// </summary>
     public const string EngineVersion = "0.0.1";
 
-   private readonly List<Move> moveHistory = [];
    private Position currentPosition = Position.StartingPosition();
    private int hashSizeMB = 128;
    private int numThreads = 1;
-   private MultiThreadedSearchEngine searchEngine = new(128, 1);
+   private MultiThreadedSearchEngine searchEngine = new();
    private CancellationTokenSource? searchCts;
    private Task? searchTask;
    private readonly ConcurrentQueue<string> commandQueue = new();
@@ -44,9 +43,7 @@ public class UciProtocol
    
    // Pondering state
    private volatile bool isPondering;
-   private bool ponderEnabled = false;
-   private Move ponderMove = Move.Null;
-   private int ponderTimeRemaining;
+   private volatile int ponderTimeRemaining;
 
 
    /// <summary>
@@ -246,11 +243,9 @@ public class UciProtocol
    {
       StopSearchAndCleanup(suppressOutput: true); // Stop any ongoing search
       currentPosition = Position.StartingPosition();
-      moveHistory.Clear();
       searchEngine.ClearTT();
       searchEngine.ClearMoveOrdering();
       isPondering = false;
-      ponderMove = Move.Null;
    }
 
    /// <summary>
@@ -295,8 +290,6 @@ public class UciProtocol
       }
 
       // Parse moves
-      moveHistory.Clear();
-
       if (index < tokens.Length && tokens[index] == "moves")
       {
          index++;
@@ -308,7 +301,6 @@ public class UciProtocol
             if (move != Move.Null)
             {
                currentPosition.MakeMove(move);
-               moveHistory.Add(move);
             } else
             {
                // Silently ignore invalid moves for Fritz compatibility
@@ -503,10 +495,9 @@ public class UciProtocol
             break;
 
          case "ponder":
-            if (bool.TryParse(optionValue, out var enablePonder))
-            {
-               ponderEnabled = enablePonder;
-            }
+            // Ponder option is accepted for UCI compatibility but not currently used
+            // The engine declares support for pondering but doesn't implement it yet
+            _ = bool.TryParse(optionValue, out _);
             break;
       }
    }
@@ -551,7 +542,7 @@ public class UciProtocol
       // The search is already running, we just need to set a time limit
       lock (searchLock)
       {
-         if (searchTask != null && !searchTask.IsCompleted && searchCts != null)
+         if (searchTask is { IsCompleted: false } && searchCts != null)
          {
             // Create a new timer task to stop the search after the remaining time
             Task.Run(async () =>
@@ -682,7 +673,7 @@ public class UciProtocol
       // Wait for any ongoing operations to complete
       lock (searchLock)
       {
-         if (searchTask != null && !searchTask.IsCompleted)
+         if (searchTask is { IsCompleted: false })
          {
             try
             {
@@ -770,7 +761,7 @@ public class UciProtocol
                }
                
                // Wait for search task to complete if needed
-               if (searchTask != null && !searchTask.IsCompleted)
+               if (searchTask is { IsCompleted: false })
                {
                   // Use a shorter timeout for position changes
                   var timeout = suppressOutput ? 100 : 1000;

@@ -228,6 +228,33 @@ public struct Position
    }
 
    /// <summary>
+   ///    Computes a hash key for just the pawn structure.
+   /// </summary>
+   [MethodImpl(MethodImplOptions.AggressiveInlining)]
+   public readonly ulong GetPawnHash()
+   {
+      ulong hash = 0;
+      
+      // Hash white pawns
+      var whitePawns = WhitePawns;
+      while (whitePawns != 0)
+      {
+         var sq = Bitboard.PopLsb(ref whitePawns);
+         hash ^= Zobrist.GetPieceKey(Piece.WhitePawn, (Square)sq);
+      }
+      
+      // Hash black pawns
+      var blackPawns = BlackPawns;
+      while (blackPawns != 0)
+      {
+         var sq = Bitboard.PopLsb(ref blackPawns);
+         hash ^= Zobrist.GetPieceKey(Piece.BlackPawn, (Square)sq);
+      }
+      
+      return hash;
+   }
+
+   /// <summary>
    ///    Creates the starting position.
    /// </summary>
    public static Position StartingPosition()

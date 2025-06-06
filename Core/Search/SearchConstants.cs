@@ -104,17 +104,56 @@ public static class SearchConstants
     ///    Late Move Pruning move count table indexed by depth.
     ///    Defines how many moves to search at each depth before pruning.
     /// </summary>
-    public static readonly int[] LMPMoveCount = new int[]
-    {
+    public static readonly int[] LMPMoveCount = [
         0,   // depth 0 - not used
         3,   // depth 1 - search 3 moves
         6,   // depth 2 - search 6 moves  
-        12,  // depth 3 - search 12 moves
-    };
+        12 // depth 3 - search 12 moves
+    ];
     
     /// <summary>
     ///    Late Move Pruning improving factor.
     ///    Additional moves to search when position is improving.
     /// </summary>
     public const int LMPImprovingBonus = 2;
+    
+    /// <summary>
+    ///    Maximum depth for razoring.
+    /// </summary>
+    public const int RazoringMaxDepth = 3;
+    
+    /// <summary>
+    ///    Base razoring margin (in centipawns).
+    /// </summary>
+    public const int RazoringMarginBase = 300;
+    
+    /// <summary>
+    ///    Razoring margin multiplier per depth (in centipawns).
+    /// </summary>
+    public const int RazoringMarginPerDepth = 100;
+    
+    /// <summary>
+    ///    Minimum depth for probcut.
+    /// </summary>
+    public const int ProbcutMinDepth = 5;
+    
+    /// <summary>
+    ///    Probcut margin (in centipawns).
+    /// </summary>
+    public const int ProbcutMargin = 200;
+    
+    /// <summary>
+    ///    Depth reduction for probcut verification search.
+    /// </summary>
+    public const int ProbcutDepthReduction = 4;
+    
+    /// <summary>
+    ///    Minimum depth for internal iterative deepening.
+    /// </summary>
+    public const int IIDMinDepth = 4;
+    
+    /// <summary>
+    ///    Depth reduction for internal iterative deepening search.
+    /// </summary>
+    public const int IIDDepthReduction = 2;
 }

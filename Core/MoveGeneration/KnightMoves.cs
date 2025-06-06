@@ -92,7 +92,7 @@ public static class KnightMoves
             var newRank = rank + rankOffsets[i];
             var newFile = file + fileOffsets[i];
 
-            if (newRank >= 0 && newRank < 8 && newFile >= 0 && newFile < 8)
+            if (newRank is >= 0 and < 8 && newFile is >= 0 and < 8)
             {
                var targetSquare = newRank * 8 + newFile;
                attacks |= 1UL << targetSquare;
