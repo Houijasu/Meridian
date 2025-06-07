@@ -5,15 +5,15 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MeridianDebugWrapper
+namespace MeridianDebugWrapper;
+
+/// <summary>
+/// Wrapper program that intercepts console I/O between a GUI (like Fritz) and Meridian.exe
+/// This allows us to log all communication for debugging purposes.
+/// </summary>
+public class Program
 {
-    /// <summary>
-    /// Wrapper program that intercepts console I/O between a GUI (like Fritz) and Meridian.exe
-    /// This allows us to log all communication for debugging purposes.
-    /// </summary>
-    public class Program
-    {
-        private static StreamWriter? logWriter;
+    private static StreamWriter? logWriter;
         private static readonly object logLock = new object();
         
         public static void Main(string[] args)
@@ -199,4 +199,3 @@ namespace MeridianDebugWrapper
             }
         }
     }
-}

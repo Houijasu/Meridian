@@ -1,6 +1,7 @@
 namespace Meridian.Core.Search;
 
 using System.Runtime.CompilerServices;
+using System.Text;
 
 using Evaluation;
 
@@ -16,6 +17,7 @@ public class SearchEngine(int ttSizeMB = 128)
    private readonly SearchInfo searchInfo = new();
    private readonly TranspositionTable tt = new(ttSizeMB);
    private readonly MoveOrdering moveOrdering = new();
+   private readonly StringBuilder uciStringBuilder = new(256); // For UCI output
 
    private static readonly int[,] LMRTable = new int[64, 64];
    private static readonly int[] FutilityMargins = new int[SearchConstants.FutilityMaxDepth + 1];
@@ -190,15 +192,6 @@ public class SearchEngine(int ttSizeMB = 128)
 
       var inCheck = AttackDetection.IsKingInCheck(in position, position.SideToMove);
       
-      // Check if opponent is in check (illegal position)
-      var opponentInCheck = AttackDetection.IsKingInCheck(in position, position.SideToMove.Flip());
-      if (opponentInCheck)
-      {
-         // This is an illegal position - opponent can't be in check when it's our turn
-         // Return a winning score since opponent is in an illegal state
-         return SearchConstants.Checkmate - ply - 1;
-      }
-
       var ttMove = Move.Null;
 
       if (tt.Probe(position.Hash, out var ttEntry))
@@ -759,56 +752,61 @@ public class SearchEngine(int ttSizeMB = 128)
    /// </summary>
    private void PrintSearchInfo()
    {
-      var elapsed = searchInfo.Timer.ElapsedMilliseconds;
-      var nodes = searchInfo.Nodes > 0 ? searchInfo.Nodes : 1; // Ensure at least 1 node
-      var nps = searchInfo.GetNps();
-      var hashfull = tt.GetHashFull();
-
-      // Build PV string
-      var pvString = BuildPvString();
-      
-      // Format score - use mate notation for checkmate scores
-      string scoreStr;
-      if (Math.Abs(searchInfo.BestScore) >= SearchConstants.CheckmateThreshold)
+      lock (uciStringBuilder) // Lock if StringBuilder is shared and SearchEngine can be multi-threaded
       {
-         // Convert to mate in N moves
-         int mateIn = (SearchConstants.Checkmate - Math.Abs(searchInfo.BestScore) + 1) / 2;
-         scoreStr = searchInfo.BestScore > 0 ? $"mate {mateIn}" : $"mate -{mateIn}";
-      }
-      else
-      {
-         scoreStr = $"cp {searchInfo.BestScore}";
-      }
+         uciStringBuilder.Clear();
+         var elapsed = searchInfo.Timer.ElapsedMilliseconds;
+         var nodes = searchInfo.Nodes > 0 ? searchInfo.Nodes : 1; // Ensure at least 1 node
+         var nps = searchInfo.GetNps();
+         var hashfull = tt.GetHashFull();
 
-      Console.WriteLine($"info depth {searchInfo.CurrentDepth} " +
-                        $"score {scoreStr} " +
-                        $"nodes {nodes} " +
-                        $"nps {nps} " +
-                        $"time {elapsed} " +
-                        $"hashfull {hashfull} " +
-                        $"pv {pvString}");
-      Console.Out.Flush(); // Ensure Fritz sees the output immediately
+         uciStringBuilder.Append("info depth ").Append(searchInfo.CurrentDepth);
+
+         uciStringBuilder.Append(" score ");
+         if (Math.Abs(searchInfo.BestScore) >= SearchConstants.CheckmateThreshold)
+         {
+            var mateIn = (SearchConstants.Checkmate - Math.Abs(searchInfo.BestScore) + 1) / 2;
+            uciStringBuilder.Append("mate ").Append(searchInfo.BestScore > 0 ? mateIn : -mateIn);
+         }
+         else
+         {
+            uciStringBuilder.Append("cp ").Append(searchInfo.BestScore);
+         }
+
+         uciStringBuilder.Append(" nodes ").Append(nodes);
+         uciStringBuilder.Append(" nps ").Append(nps);
+         uciStringBuilder.Append(" time ").Append(elapsed);
+         uciStringBuilder.Append(" hashfull ").Append(hashfull);
+         uciStringBuilder.Append(" pv ");
+         BuildPvString(uciStringBuilder); // Append PV to existing StringBuilder
+
+         Console.WriteLine(uciStringBuilder.ToString());
+         Console.Out.Flush(); // Ensure Fritz sees the output immediately
+      }
    }
    
    /// <summary>
-   ///    Builds the principal variation string from the PV table.
+   ///    Builds the principal variation string from the PV table into a StringBuilder.
    /// </summary>
-   private string BuildPvString()
+   private void BuildPvString(StringBuilder sb)
    {
       if (searchInfo.PvLength[0] == 0 || searchInfo.PvTable[0][0].IsNull)
       {
-         // If we have a best move but no PV, return the best move
-         // If no best move (e.g., checkmate with no legal moves), return empty string
-         return searchInfo.BestMove.IsNull ? "" : searchInfo.BestMove.ToAlgebraic();
+         if (!searchInfo.BestMove.IsNull)
+         {
+            sb.Append(searchInfo.BestMove.ToAlgebraic());
+         }
+         return;
       }
          
-      var pvMoves = new string[searchInfo.PvLength[0]];
       for (int i = 0; i < searchInfo.PvLength[0]; i++)
       {
-         pvMoves[i] = searchInfo.PvTable[0][i].ToAlgebraic();
+         if (i > 0)
+         {
+            sb.Append(' ');
+         }
+         sb.Append(searchInfo.PvTable[0][i].ToAlgebraic());
       }
-      
-      return string.Join(" ", pvMoves);
    }
    
    /// <summary>

@@ -131,44 +131,55 @@ public static class Evaluator
       if ((position.WhitePawns | position.BlackPawns |
            position.WhiteRooks | position.BlackRooks |
            position.WhiteQueens | position.BlackQueens) != 0)
-         return false;
-
-      var whiteMinorPieces = Bitboard.PopCount(position.WhiteKnights | position.WhiteBishops);
-      var blackMinorPieces = Bitboard.PopCount(position.BlackKnights | position.BlackBishops);
-
-      // King vs King
-      if (whiteMinorPieces == 0 && blackMinorPieces == 0)
-         return true;
-
-      // King and minor piece vs King
-      if (whiteMinorPieces == 1 && blackMinorPieces == 0 ||
-          whiteMinorPieces == 0 && blackMinorPieces == 1)
-         return true;
-
-      // King and two knights vs King (cannot force mate)
-      if (whiteMinorPieces == 2 && blackMinorPieces == 0 && position.WhiteKnights == (position.WhitePieces ^ position.WhiteKing))
-         return true;
-
-      if (blackMinorPieces == 2 && whiteMinorPieces == 0 && position.BlackKnights == (position.BlackPieces ^ position.BlackKing))
-         return true;
-
-      // Both sides have only one bishop on same color squares
-      if (whiteMinorPieces == 1 && blackMinorPieces == 1 &&
-          position.WhiteBishops != 0 && position.BlackBishops != 0)
       {
-         // Check if bishops are on same color
-         var whiteBishopSquare = position.WhiteBishops;
-         var blackBishopSquare = position.BlackBishops;
-
-         // Light squares mask: 0x55AA55AA55AA55AA
-         const ulong lightSquares = 0x55AA55AA55AA55AAUL;
-
-         var whiteBishopOnLight = (whiteBishopSquare & lightSquares) != 0;
-         var blackBishopOnLight = (blackBishopSquare & lightSquares) != 0;
-
-         return whiteBishopOnLight == blackBishopOnLight;
+         return false;
       }
 
-      return false;
+      var whiteKnights = Bitboard.PopCount(position.WhiteKnights);
+      var whiteBishops = Bitboard.PopCount(position.WhiteBishops);
+      var blackKnights = Bitboard.PopCount(position.BlackKnights);
+      var blackBishops = Bitboard.PopCount(position.BlackBishops);
+
+      var whiteMinorPieces = whiteKnights + whiteBishops;
+      var blackMinorPieces = blackKnights + blackBishops;
+
+      return (whiteMinorPieces, blackMinorPieces) switch
+      {
+         // King vs King
+         (0, 0) => true,
+         // King and minor piece vs King
+         (1, 0) => true,
+         (0, 1) => true,
+         // King and two knights vs King (cannot force mate)
+         (2, 0) when whiteKnights == 2 => true,
+         (0, 2) when blackKnights == 2 => true,
+         // Both sides have only one bishop on same color squares
+         (1, 1) when whiteBishops == 1 && blackBishops == 1 => AreBishopsOnSameColor(in position),
+         _ => false
+      };
+   }
+
+   [MethodImpl(MethodImplOptions.AggressiveInlining)]
+   private static bool AreBishopsOnSameColor(in Position position)
+   {
+      // This assumes there's exactly one white bishop and one black bishop.
+      var whiteBishopSquareBitboard = position.WhiteBishops;
+      var blackBishopSquareBitboard = position.BlackBishops;
+
+      // If for some reason a bitboard is empty (e.g. called incorrectly), it's not "same color" in a meaningful way.
+      if (whiteBishopSquareBitboard == 0 || blackBishopSquareBitboard == 0)
+          return false;
+
+      var whiteBishopSquare = Bitboard.GetLsb(whiteBishopSquareBitboard);
+      var blackBishopSquare = Bitboard.GetLsb(blackBishopSquareBitboard);
+
+      // Light squares have (file + rank) % 2 == 0. Dark squares have (file + rank) % 2 != 0.
+      // Or, more efficiently, check the LSB of (file + rank).
+      // A square is light if (square % 8 + square / 8) % 2 == 0
+      // A square is light if ((square & 7) + (square >> 3)) % 2 == 0
+      var whiteBishopIsLight = (((whiteBishopSquare & 7) + (whiteBishopSquare >> 3)) & 1) == 0;
+      var blackBishopIsLight = (((blackBishopSquare & 7) + (blackBishopSquare >> 3)) & 1) == 0;
+
+      return whiteBishopIsLight == blackBishopIsLight;
    }
 }
