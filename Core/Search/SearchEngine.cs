@@ -276,6 +276,14 @@ public class SearchEngine(int ttSizeMB = 128)
                   
                return nullScore;
             }
+            
+            // Null move threat detection
+            // If null move fails low by a large margin, we might be under threat
+            if (nullScore < beta - 200 && newDepth >= SearchConstants.NullMoveThreatMinDepth)
+            {
+               extensions += SearchConstants.NullMoveThreatExtension;
+               newDepth += SearchConstants.NullMoveThreatExtension;
+            }
          }
       }
 
