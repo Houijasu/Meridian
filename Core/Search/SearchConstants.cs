@@ -156,4 +156,14 @@ public static class SearchConstants
     ///    Depth reduction for internal iterative deepening search.
     /// </summary>
     public const int IIDDepthReduction = 2;
+    
+    /// <summary>
+    ///    Extension amount for null move threats.
+    /// </summary>
+    public const int NullMoveThreatExtension = 1;
+    
+    /// <summary>
+    ///    Minimum depth for null move threat detection.
+    /// </summary>
+    public const int NullMoveThreatMinDepth = 5;
 }
