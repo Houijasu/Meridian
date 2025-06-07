@@ -209,7 +209,7 @@ public sealed class MoveOrdering
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private int GetHistoryScore(Move move)
+    public int GetHistoryScore(Move move)
     {
         return historyTable[(int)move.From, (int)move.To];
     }
