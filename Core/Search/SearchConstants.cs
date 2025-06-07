@@ -51,6 +51,16 @@ public static class SearchConstants
     public const int LMRMinMoves = 4;
     
     /// <summary>
+    ///    Base LMR reduction value.
+    /// </summary>
+    public const double LMRBase = 0.75;
+    
+    /// <summary>
+    ///    LMR logarithmic factor.
+    /// </summary>
+    public const double LMRFactor = 2.25;
+    
+    /// <summary>
     ///    Base futility margin per ply.
     /// </summary>
     public const int FutilityMarginBase = 200;

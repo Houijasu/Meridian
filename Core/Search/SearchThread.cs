@@ -39,7 +39,7 @@ public class SearchThread
       {
          for (int moves = 1; moves < 64; moves++)
          {
-            LMRTable[depth, moves] = (int)(0.75 + Math.Log(depth) * Math.Log(moves) / 2.25);
+            LMRTable[depth, moves] = (int)(SearchConstants.LMRBase + Math.Log(depth) * Math.Log(moves) / SearchConstants.LMRFactor);
          }
       }
    }
@@ -442,9 +442,25 @@ public class SearchThread
          // Late move reductions
          if (newDepth >= SearchConstants.LMRMinDepth && 
              movesSearched > SearchConstants.LMRMinMoves &&
-             !inCheck && move is { IsCapture: false, IsPromotion: false })
+             !inCheck &&
+             beta - alpha > 1 &&  // Not in PV node
+             move is { IsCapture: false, IsPromotion: false })
          {
             reduction = LMRTable[Math.Min(newDepth, 63), Math.Min(movesSearched, 63)];
+            
+            // Reduce less for moves that give check
+            var givesCheck = AttackDetection.IsKingInCheck(in newPosition, newPosition.SideToMove);
+            if (givesCheck)
+               reduction = Math.Max(reduction - 1, 0);
+            
+            // Reduce less for moves with good history
+            var historyScore = moveOrdering.GetHistoryScore(move);
+            if (historyScore > 0)
+               reduction = Math.Max(reduction - 1, 0);
+            else if (historyScore < -5000)
+               reduction += 1;
+            
+            // Ensure we don't reduce too much
             reduction = Math.Min(newDepth - 2, Math.Max(reduction, 1));
          }
          
