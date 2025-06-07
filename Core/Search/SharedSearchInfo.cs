@@ -46,7 +46,7 @@ public class SharedSearchInfo
          bestDepth = 0;
          ponderMove = Move.Null;
          pvLength = 0;
-         Array.Clear(principalVariation);
+         Array.Clear(principalVariation, 0, principalVariation.Length);
          maxTime = maxTimeMs;
          timer.Restart();
          lastReportedNodes = 0;
