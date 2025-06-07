@@ -64,9 +64,9 @@ public class SharedSearchInfo
          bool shouldUpdate = depth > bestDepth || 
                            (depth == bestDepth && score > bestScore);
                            
-         if (shouldUpdate && !move.IsNull)
+         if (shouldUpdate)
          {
-            bestMove = move;
+            bestMove = move;  // Can be null in checkmate positions
             bestScore = score;
             bestDepth = depth;
             
