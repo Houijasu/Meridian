@@ -441,34 +441,62 @@ public struct Position
    /// </summary>
    public override readonly string ToString()
    {
-      var sb = new StringBuilder();
-      sb.AppendLine("  a b c d e f g h");
-      sb.AppendLine("  ---------------");
+      // Estimate capacity: 8 lines * (2 chars board + 1 char space) * 8 files + 8 newlines ~ 8*25
+      // Plus headers/footers and info lines. 256-512 should be ample.
+      var sb = new StringBuilder(300);
+      sb.Append("  a b c d e f g h\n"); // Using \n directly for minor efficiency
+      sb.Append("  ---------------\n");
 
       for (var rank = 7; rank >= 0; rank--)
       {
-         sb.Append($"{rank + 1}|");
+         sb.Append(rank + 1);
+         sb.Append('|');
 
          for (var file = 0; file < 8; file++)
          {
             var square = SquareExtensions.CreateSquare(file, rank);
             var piece = GetPiece(square);
 
-            sb.Append(piece == Piece.None
-               ? ". "
-               : $"{piece.ToFenChar()} ");
+            sb.Append(piece == Piece.None ? '.' : piece.ToFenChar());
+            sb.Append(' ');
          }
-
-         sb.AppendLine($"|{rank + 1}");
+         sb.Append('|');
+         sb.Append(rank + 1);
+         sb.Append('\n');
       }
 
-      sb.AppendLine("  ---------------");
-      sb.AppendLine("  a b c d e f g h");
-      sb.AppendLine($"Side to move: {SideToMove}");
-      sb.AppendLine($"Castling: {CastlingRights}");
-      sb.AppendLine($"En passant: {EnPassantSquare.ToAlgebraic()}");
-      sb.AppendLine($"Halfmove clock: {HalfmoveClock}");
-      sb.AppendLine($"Fullmove: {FullmoveNumber}");
+      sb.Append("  ---------------\n");
+      sb.Append("  a b c d e f g h\n");
+
+      sb.Append("Side to move: ");
+      sb.Append(SideToMove == Color.White ? "White" : "Black");
+      sb.Append('\n');
+
+      sb.Append("Castling: ");
+      if (CastlingRights == CastlingRights.None)
+      {
+         sb.Append('-');
+      }
+      else
+      {
+         if ((CastlingRights & CastlingRights.WhiteKingside) != 0) sb.Append('K');
+         if ((CastlingRights & CastlingRights.WhiteQueenside) != 0) sb.Append('Q');
+         if ((CastlingRights & CastlingRights.BlackKingside) != 0) sb.Append('k');
+         if ((CastlingRights & CastlingRights.BlackQueenside) != 0) sb.Append('q');
+      }
+      sb.Append('\n');
+
+      sb.Append("En passant: ");
+      sb.Append(EnPassantSquare.ToAlgebraic());
+      sb.Append('\n');
+
+      sb.Append("Halfmove clock: ");
+      sb.Append(HalfmoveClock);
+      sb.Append('\n');
+
+      sb.Append("Fullmove: ");
+      sb.Append(FullmoveNumber);
+      sb.Append('\n');
 
       return sb.ToString();
    }
