@@ -447,6 +447,13 @@ public class SearchEngine(int ttSizeMB = 128)
                      return bestScore;
                   }
                }
+               else if (ply == 0)
+               {
+                  // At root, always update best move and PV even if score doesn't improve alpha
+                  // This ensures we have a move to play even in losing positions
+                  searchInfo.BestMove = ttMove;
+                  UpdatePV(ply, ttMove);
+               }
             }
          }
       }
@@ -577,6 +584,13 @@ public class SearchEngine(int ttSizeMB = 128)
 
                   return bestScore;
                }
+            }
+            else if (ply == 0)
+            {
+               // At root, always update best move and PV even if score doesn't improve alpha
+               // This ensures we have a move to play even in losing positions
+               searchInfo.BestMove = move;
+               UpdatePV(ply, move);
             }
          }
       }
