@@ -62,6 +62,15 @@ public class MultiThreadedSearchEngine
    }
    
    /// <summary>
+   /// Gets the ponder move (expected opponent response).
+   /// </summary>
+   public Move GetPonderMove()
+   {
+      var (_, ponder, _, _) = sharedInfo.GetBestMoveWithPonder();
+      return ponder;
+   }
+   
+   /// <summary>
    /// Searches for the best move using multiple threads.
    /// </summary>
    public Move Search(Position position, int maxDepth, int maxTime = int.MaxValue, CancellationToken cancellationToken = default)
@@ -73,13 +82,16 @@ public class MultiThreadedSearchEngine
       Task[] searchTasks = new Task[threadCount];
       using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
       
+      // Capture the token to avoid capturing the disposable CancellationTokenSource
+      var token = cts.Token;
+      
       for (int i = 0; i < threadCount; i++)
       {
          int threadId = i;
          searchTasks[i] = Task.Run(() =>
          {
-            threads[threadId].Search(position, maxDepth, cts.Token);
-         }, cts.Token);
+            threads[threadId].Search(position, maxDepth, token);
+         }, token);
       }
       
       // Start a timer task if we have a time limit
@@ -88,9 +100,9 @@ public class MultiThreadedSearchEngine
       {
          timerTask = Task.Run(async () =>
          {
-            await Task.Delay(maxTime, cts.Token);
+            await Task.Delay(maxTime, token);
             sharedInfo.ShouldStop = true;
-         }, cts.Token);
+         }, token);
       }
       
       // Wait for all threads to complete
@@ -139,14 +151,33 @@ public class MultiThreadedSearchEngine
       // Final info output
       long elapsed = sharedInfo.StopTimer();
       long nodes = sharedInfo.GetTotalNodes();
-      long nps = elapsed > 0 ? nodes * 1000 / elapsed : 0;
+      
+      // Ensure we report at least 1 node and reasonable NPS
+      if (nodes == 0) nodes = 1;
+      long nps = elapsed > 0 ? nodes * 1000 / elapsed : nodes * 1000;
       int hashFull = tt.GetHashFull();
       
-      if (bestDepth > 0 && !bestMove.IsNull)
+      if (bestDepth > 0)
       {
-         Console.WriteLine($"info depth {bestDepth} score cp {bestScore} " +
+         // Get the full PV from shared info
+         string pvString = sharedInfo.BuildPvString();
+         
+         // Format score - use mate notation for checkmate scores
+         string scoreStr;
+         if (Math.Abs(bestScore) >= SearchConstants.CheckmateThreshold)
+         {
+            // Convert to mate in N moves
+            int mateIn = (SearchConstants.Checkmate - Math.Abs(bestScore) + 1) / 2;
+            scoreStr = bestScore > 0 ? $"mate {mateIn}" : $"mate -{mateIn}";
+         }
+         else
+         {
+            scoreStr = $"cp {bestScore}";
+         }
+         
+         Console.WriteLine($"info depth {bestDepth} score {scoreStr} " +
                           $"nodes {nodes} nps {nps} time {elapsed} " +
-                          $"hashfull {hashFull} pv {bestMove.ToAlgebraic()}");
+                          $"hashfull {hashFull} pv {pvString}");
          Console.Out.Flush();
       }
       

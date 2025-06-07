@@ -68,7 +68,7 @@ public static class Endgame
     public static bool IsEndgame(in Position position)
     {
         // No queens = endgame
-        if (position.WhiteQueens == 0 && position.BlackQueens == 0)
+        if (position is { WhiteQueens: 0, BlackQueens: 0 })
             return true;
             
         // Queen + minor piece or less per side = endgame
@@ -208,36 +208,30 @@ public static class Endgame
         // KRP vs KR endgame
         if (Bitboard.PopCount(position.WhitePawns) == 1 && position.BlackPawns == 0 &&
             Bitboard.PopCount(position.WhiteRooks) == 1 && Bitboard.PopCount(position.BlackRooks) == 1 &&
-            position.WhiteQueens == 0 && position.BlackQueens == 0 &&
-            position.WhiteKnights == 0 && position.BlackKnights == 0 &&
-            position.WhiteBishops == 0 && position.BlackBishops == 0)
+            position is { WhiteQueens: 0, BlackQueens: 0, WhiteKnights: 0, BlackKnights: 0, WhiteBishops: 0, BlackBishops: 0 })
         {
             score += EvaluateKRPvsKR(in position);
         }
         // KRP vs KR endgame (reversed)
         else if (position.WhitePawns == 0 && Bitboard.PopCount(position.BlackPawns) == 1 &&
                  Bitboard.PopCount(position.WhiteRooks) == 1 && Bitboard.PopCount(position.BlackRooks) == 1 &&
-                 position.WhiteQueens == 0 && position.BlackQueens == 0 &&
-                 position.WhiteKnights == 0 && position.BlackKnights == 0 &&
-                 position.WhiteBishops == 0 && position.BlackBishops == 0)
+                 position is { WhiteQueens: 0, BlackQueens: 0, WhiteKnights: 0, BlackKnights: 0, WhiteBishops: 0, BlackBishops: 0 })
         {
             score -= EvaluateKRPvsKR(in position);
         }
         
         // KBN vs K endgame
-        if (position.WhitePawns == 0 && position.BlackPawns == 0 &&
-            position.WhiteRooks == 0 && position.BlackRooks == 0 &&
-            position.WhiteQueens == 0 && position.BlackQueens == 0)
+        if (position is { WhitePawns: 0, BlackPawns: 0, WhiteRooks: 0, BlackRooks: 0, WhiteQueens: 0, BlackQueens: 0 })
         {
             if (Bitboard.PopCount(position.WhiteKnights) == 1 && 
                 Bitboard.PopCount(position.WhiteBishops) == 1 &&
-                position.BlackKnights == 0 && position.BlackBishops == 0)
+                position is { BlackKnights: 0, BlackBishops: 0 })
             {
                 score += EvaluateKBNvsK(in position, Color.White);
             }
             else if (Bitboard.PopCount(position.BlackKnights) == 1 && 
                      Bitboard.PopCount(position.BlackBishops) == 1 &&
-                     position.WhiteKnights == 0 && position.WhiteBishops == 0)
+                     position is { WhiteKnights: 0, WhiteBishops: 0 })
             {
                 score -= EvaluateKBNvsK(in position, Color.Black);
             }

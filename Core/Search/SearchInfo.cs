@@ -51,16 +51,36 @@ public class SearchInfo
     ///    Score of the best move.
     /// </summary>
     public int BestScore { get; set; }
+    
+    /// <summary>
+    ///    Ponder move (expected opponent response).
+    /// </summary>
+    public Move PonderMove { get; set; }
 
     /// <summary>
-    ///    Principal variation (best line).
+    ///    Principal variation table (triangular array).
+    ///    PV[ply] contains the PV starting from that ply.
     /// </summary>
-    public Move[] PrincipalVariation { get; } = new Move[SearchConstants.MaxDepth];
-
+    public Move[][] PvTable { get; }
+    
     /// <summary>
-    ///    Length of the principal variation.
+    ///    Principal variation lengths for each ply.
     /// </summary>
-    public int PvLength { get; set; }
+    public int[] PvLength { get; }
+    
+    /// <summary>
+    ///    Initializes PV table.
+    /// </summary>
+    public SearchInfo()
+    {
+        PvTable = new Move[SearchConstants.MaxPly][];
+        PvLength = new int[SearchConstants.MaxPly];
+        
+        for (int i = 0; i < SearchConstants.MaxPly; i++)
+        {
+            PvTable[i] = new Move[SearchConstants.MaxPly - i];
+        }
+    }
 
     /// <summary>
     ///    Checks if we should stop the search due to time limit.
@@ -77,9 +97,10 @@ public class SearchInfo
     public long GetNps()
    {
       var elapsed = Timer.ElapsedMilliseconds;
+      var nodes = Nodes > 0 ? Nodes : 1; // Ensure at least 1 node
 
       return elapsed > 0
-         ? Nodes * 1000 / elapsed
-         : 0;
+         ? nodes * 1000 / elapsed
+         : nodes * 1000; // If time is 0, assume 1ms
    }
 }

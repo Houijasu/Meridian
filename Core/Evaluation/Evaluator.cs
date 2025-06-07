@@ -7,6 +7,8 @@ using System.Runtime.CompilerServices;
 /// </summary>
 public static class Evaluator
 {
+    private static readonly PawnHashTable pawnHashTable = new(); // 16 MB pawn hash
+    private static readonly EvaluationCache evalCache = new(); // 32 MB eval cache
     /// <summary>
     ///    Evaluates the position from the perspective of the side to move.
     ///    Returns positive values for advantages, negative for disadvantages.
@@ -28,6 +30,11 @@ public static class Evaluator
     /// </summary>
     public static int EvaluateAbsolute(in Position position)
    {
+      // Check evaluation cache first
+      if (evalCache.Probe(position.Hash, out int cachedScore))
+      {
+         return cachedScore;
+      }
       var materialScore = 0;
       var positionalScore = 0;
 
@@ -53,9 +60,19 @@ public static class Evaluator
       // Middlegame evaluation components
       int mgScore = materialScore + positionalScore;
       
-      // Add pawn structure evaluation
-      var pawnScore = PawnStructure.Evaluate(in position);
-      mgScore += pawnScore;
+      // Add pawn structure evaluation with caching
+      var pawnHash = position.GetPawnHash();
+      int pawnMgScore, pawnEgScore;
+      ulong passedPawns;
+      
+      if (!pawnHashTable.Probe(pawnHash, out pawnMgScore, out pawnEgScore, out passedPawns))
+      {
+         // Not in cache, evaluate and store
+         PawnStructure.EvaluateWithPhases(in position, out pawnMgScore, out pawnEgScore, out passedPawns);
+         pawnHashTable.Store(pawnHash, pawnMgScore, pawnEgScore, passedPawns);
+      }
+      
+      mgScore += pawnMgScore;
       
       // Add king safety evaluation (primarily middlegame)
       var kingSafetyScore = KingSafety.Evaluate(in position);
@@ -66,7 +83,7 @@ public static class Evaluator
       mgScore += mobilityScore;
       
       // Endgame evaluation components
-      int egScore = materialScore + positionalScore + pawnScore;
+      int egScore = materialScore + positionalScore + pawnEgScore;
       
       // Add endgame-specific evaluation
       var endgameScore = Endgame.Evaluate(in position);
@@ -76,7 +93,12 @@ public static class Evaluator
       egScore += mobilityScore / 2;
       
       // Tapered evaluation
-      return (mgScore * middlegamePhase + egScore * endgamePhase) / 256;
+      int finalScore = (mgScore * middlegamePhase + egScore * endgamePhase) / 256;
+      
+      // Store in cache
+      evalCache.Store(position.Hash, finalScore);
+      
+      return finalScore;
    }
 
    [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -88,7 +110,7 @@ public static class Evaluator
       var material = count * PieceValues.GetValue(pieceType);
 
       // Determine if we're in endgame (simplified: queens off or very few pieces)
-      var isEndgame = position.WhiteQueens == 0 && position.BlackQueens == 0;
+      var isEndgame = position is { WhiteQueens: 0, BlackQueens: 0 };
 
       // Add piece-square table values
       while (bitboard != 0)

@@ -187,7 +187,7 @@ public class StableUciProtocol
     {
         lock (searchLock)
         {
-            if (searchThread != null && searchThread.IsAlive)
+            if (searchThread is { IsAlive: true })
             {
                 engine.StopSearch();
                 

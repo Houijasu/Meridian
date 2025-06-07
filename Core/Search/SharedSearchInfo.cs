@@ -14,7 +14,10 @@ public class SharedSearchInfo
    private Move bestMove = Move.Null;
    private int bestScore = -SearchConstants.Infinity;
    private int bestDepth;
-   private int bestThreadId = -1;
+   private Move ponderMove = Move.Null;
+   private Move[] principalVariation = new Move[SearchConstants.MaxDepth];
+   private int pvLength;
+   private long lastReportedNodes;
    
    // Timing
    private readonly Stopwatch timer = new();
@@ -37,20 +40,23 @@ public class SharedSearchInfo
       lock (syncLock)
       {
          shouldStop = false;
-         totalNodes = 0;
+         totalNodes = 1; // Start with 1 to ensure GUI sees non-zero
          bestMove = Move.Null;
          bestScore = -SearchConstants.Infinity;
          bestDepth = 0;
-         bestThreadId = -1;
+         ponderMove = Move.Null;
+         pvLength = 0;
+         Array.Clear(principalVariation, 0, principalVariation.Length);
          maxTime = maxTimeMs;
          timer.Restart();
+         lastReportedNodes = 0;
       }
    }
    
    /// <summary>
    /// Updates the best move if the new one is better.
    /// </summary>
-   public void UpdateBestMove(Move move, int score, int depth, int threadId)
+   public void UpdateBestMove(Move move, int score, int depth, int threadId, Move[] pv, int pvLen, Move ponder = default)
    {
       lock (syncLock)
       {
@@ -63,7 +69,16 @@ public class SharedSearchInfo
             bestMove = move;
             bestScore = score;
             bestDepth = depth;
-            bestThreadId = threadId;
+            
+            if (!ponder.IsNull)
+               ponderMove = ponder;
+            
+            // Copy PV
+            pvLength = Math.Min(pvLen, SearchConstants.MaxDepth);
+            if (pvLength > 0)
+            {
+               Array.Copy(pv, principalVariation, pvLength);
+            }
          }
       }
    }
@@ -76,6 +91,17 @@ public class SharedSearchInfo
       lock (syncLock)
       {
          return (bestMove, bestScore, bestDepth);
+      }
+   }
+   
+   /// <summary>
+   /// Gets the current best move with ponder move.
+   /// </summary>
+   public (Move move, Move ponder, int score, int depth) GetBestMoveWithPonder()
+   {
+      lock (syncLock)
+      {
+         return (bestMove, ponderMove, bestScore, bestDepth);
       }
    }
    
@@ -100,25 +126,44 @@ public class SharedSearchInfo
    /// </summary>
    public void ReportProgress(int depth, int score)
    {
-      // Check time limit
-      if (maxTime != int.MaxValue && timer.ElapsedMilliseconds > maxTime)
-      {
-         shouldStop = true;
-         return;
-      }
-      
       long nodes = GetTotalNodes();
       long elapsed = timer.ElapsedMilliseconds;
-      long nps = elapsed > 0 ? nodes * 1000 / elapsed : 0;
       
-      // Get current best move for PV
-      var (move, _, _) = GetBestMove();
-      string pvString = move.IsNull ? "" : move.ToAlgebraic();
+      // Ensure monotonically increasing node count
+      if (nodes <= lastReportedNodes)
+      {
+         nodes = lastReportedNodes + 1;
+      }
+      lastReportedNodes = nodes;
       
-      Console.WriteLine($"info depth {depth} score cp {score} " +
+      long nps = elapsed > 0 ? nodes * 1000 / elapsed : nodes * 1000;
+      
+      // Build PV string
+      string pvString = BuildPvString();
+      
+      // Format score - use mate notation for checkmate scores
+      string scoreStr;
+      if (Math.Abs(score) >= SearchConstants.CheckmateThreshold)
+      {
+         // Convert to mate in N moves
+         int mateIn = (SearchConstants.Checkmate - Math.Abs(score) + 1) / 2;
+         scoreStr = score > 0 ? $"mate {mateIn}" : $"mate -{mateIn}";
+      }
+      else
+      {
+         scoreStr = $"cp {score}";
+      }
+      
+      Console.WriteLine($"info depth {depth} score {scoreStr} " +
                        $"nodes {nodes} nps {nps} time {elapsed} " +
                        $"pv {pvString}");
       Console.Out.Flush();
+      
+      // Check time limit after reporting
+      if (maxTime != int.MaxValue && timer.ElapsedMilliseconds > maxTime)
+      {
+         shouldStop = true;
+      }
    }
    
    /// <summary>
@@ -128,5 +173,28 @@ public class SharedSearchInfo
    {
       timer.Stop();
       return timer.ElapsedMilliseconds;
+   }
+   
+   /// <summary>
+   /// Builds the PV string from the stored principal variation.
+   /// </summary>
+   public string BuildPvString()
+   {
+      lock (syncLock)
+      {
+         if (pvLength == 0 || principalVariation[0].IsNull)
+         {
+            // Fallback to just best move
+            return bestMove.IsNull ? "" : bestMove.ToAlgebraic();
+         }
+         
+         var pvMoves = new string[pvLength];
+         for (int i = 0; i < pvLength; i++)
+         {
+            pvMoves[i] = principalVariation[i].ToAlgebraic();
+         }
+         
+         return string.Join(" ", pvMoves);
+      }
    }
 }

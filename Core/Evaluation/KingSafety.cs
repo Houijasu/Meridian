@@ -43,7 +43,7 @@ public static class KingSafety
     public static int Evaluate(in Position position)
     {
         // Only evaluate king safety in middlegame
-        if (position.WhiteQueens == 0 && position.BlackQueens == 0)
+        if (position is { WhiteQueens: 0, BlackQueens: 0 })
             return 0;
             
         int score = 0;
@@ -166,7 +166,7 @@ public static class KingSafety
             {
                 int shieldRank = color == Color.White ? kingRank + 1 : kingRank - 1;
                 
-                if (shieldRank >= 0 && shieldRank <= 7)
+                if (shieldRank is >= 0 and <= 7)
                 {
                     int shieldSq = shieldRank * 8 + f;
                     if ((friendlyPawns & (1UL << shieldSq)) == 0)
@@ -176,7 +176,7 @@ public static class KingSafety
                         
                         // Check if pawn is advanced
                         int advancedRank = color == Color.White ? shieldRank + 1 : shieldRank - 1;
-                        if (advancedRank >= 0 && advancedRank <= 7)
+                        if (advancedRank is >= 0 and <= 7)
                         {
                             int advancedSq = advancedRank * 8 + f;
                             if ((friendlyPawns & (1UL << advancedSq)) != 0)

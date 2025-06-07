@@ -96,6 +96,36 @@ public static class PawnStructure
         return score;
     }
     
+    /// <summary>
+    /// Evaluates the pawn structure for both sides, returning separate middlegame and endgame scores.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void EvaluateWithPhases(in Position position, out int mgScore, out int egScore, out ulong passedPawns)
+    {
+        mgScore = 0;
+        egScore = 0;
+        passedPawns = 0;
+        
+        // Evaluate white pawns
+        EvaluatePawnsWithPhases(position.WhitePawns, position.BlackPawns, Color.White, 
+                                ref mgScore, ref egScore, ref passedPawns);
+        
+        // Evaluate black pawns (subtract scores)
+        int blackMg = 0, blackEg = 0;
+        ulong blackPassed = 0;
+        EvaluatePawnsWithPhases(position.BlackPawns, position.WhitePawns, Color.Black,
+                                ref blackMg, ref blackEg, ref blackPassed);
+        mgScore -= blackMg;
+        egScore -= blackEg;
+        
+        // Flip black passed pawns to opponent's perspective
+        while (blackPassed != 0)
+        {
+            int sq = Bitboard.PopLsb(ref blackPassed);
+            passedPawns |= 1UL << (sq ^ 56);
+        }
+    }
+    
     private static int EvaluatePawns(ulong friendlyPawns, ulong enemyPawns, Color color)
     {
         int score = 0;
@@ -137,7 +167,7 @@ public static class PawnStructure
                 }
                 
                 // Backward pawn evaluation
-                if (rank > 1 && rank < 6) // Not on starting or promotion ranks
+                if (rank is > 1 and < 6) // Not on starting or promotion ranks
                 {
                     ulong stopSquare = color == Color.White ? 
                         1UL << (sq + 8) : 1UL << (sq - 8);
@@ -193,5 +223,89 @@ public static class PawnStructure
         }
         
         return passed;
+    }
+    
+    private static void EvaluatePawnsWithPhases(ulong friendlyPawns, ulong enemyPawns, Color color,
+                                                ref int mgScore, ref int egScore, ref ulong passedPawns)
+    {
+        ulong pawns = friendlyPawns;
+        
+        while (pawns != 0)
+        {
+            int sq = Bitboard.PopLsb(ref pawns);
+            int file = sq & 7;
+            int rank = sq >> 3;
+            
+            // Adjust rank for black pawns
+            if (color == Color.Black)
+                rank = 7 - rank;
+            
+            // Passed pawn evaluation
+            ulong passedMask = color == Color.White ? PassedPawnMask[sq] : PassedPawnMask[sq ^ 56];
+            if ((passedMask & enemyPawns) == 0)
+            {
+                // Passed pawns are more valuable in endgame
+                mgScore += PassedPawnBonus[rank];
+                egScore += PassedPawnBonus[rank] * 2;
+                
+                // Mark as passed pawn
+                passedPawns |= 1UL << sq;
+                
+                // Additional bonus if pawn is supported
+                if ((BackwardPawnMask[sq] & friendlyPawns) != 0)
+                {
+                    mgScore += PassedPawnBonus[rank] / 2;
+                    egScore += PassedPawnBonus[rank];
+                }
+            }
+            
+            // Isolated pawn evaluation (worse in endgame)
+            if ((AdjacentFilesMask[file] & friendlyPawns) == 0)
+            {
+                mgScore -= IsolatedPawnPenalty[file];
+                egScore -= IsolatedPawnPenalty[file] * 2;
+            }
+            else
+            {
+                // Connected pawn evaluation
+                ulong adjacent = AdjacentFilesMask[file] & friendlyPawns;
+                if (adjacent != 0)
+                {
+                    // Check if pawn is supported by adjacent pawn on same or previous rank
+                    ulong rankMask = 0xFFUL << (rank * 8);
+                    ulong prevRankMask = rank > 0 ? 0xFFUL << ((rank - 1) * 8) : 0;
+                    ulong nextRankMask = rank < 7 ? 0xFFUL << ((rank + 1) * 8) : 0;
+                    
+                    ulong supportMask = color == Color.White 
+                        ? (adjacent & (rankMask | prevRankMask))
+                        : (adjacent & (rankMask | nextRankMask));
+                    
+                    if (supportMask != 0)
+                    {
+                        mgScore += ConnectedPawnBonus[rank];
+                        egScore += ConnectedPawnBonus[rank] / 2;
+                    }
+                }
+            }
+            
+            // Doubled pawn evaluation
+            ulong filePawns = FileMask[file] & friendlyPawns;
+            if (Bitboard.PopCount(filePawns) > 1)
+            {
+                mgScore -= DoubledPawnPenalty;
+                egScore -= DoubledPawnPenalty * 2;
+            }
+            
+            // Backward pawn evaluation (less important in endgame)
+            if (rank is > 1 and < 6)
+            {
+                ulong backwardMask = color == Color.White ? BackwardPawnMask[sq] : BackwardPawnMask[sq ^ 56];
+                if ((backwardMask & friendlyPawns) == 0 && (AdjacentFilesMask[file] & friendlyPawns) != 0)
+                {
+                    mgScore -= BackwardPawnPenalty;
+                    egScore -= BackwardPawnPenalty / 2;
+                }
+            }
+        }
     }
 }

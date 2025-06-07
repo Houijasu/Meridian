@@ -27,11 +27,10 @@ public class UciProtocol
     /// </summary>
     public const string EngineVersion = "0.0.1";
 
-   private readonly List<Move> moveHistory = [];
    private Position currentPosition = Position.StartingPosition();
    private int hashSizeMB = 128;
    private int numThreads = 1;
-   private MultiThreadedSearchEngine searchEngine = new(128, 1);
+   private MultiThreadedSearchEngine searchEngine = new();
    private CancellationTokenSource? searchCts;
    private Task? searchTask;
    private readonly ConcurrentQueue<string> commandQueue = new();
@@ -41,6 +40,10 @@ public class UciProtocol
    private readonly object disposeLock = new();
    private volatile bool isDisposing;
    private readonly AutoResetEvent commandAvailable = new(false);
+   
+   // Pondering state
+   private volatile bool isPondering;
+   private volatile int ponderTimeRemaining;
 
 
    /// <summary>
@@ -137,6 +140,10 @@ public class UciProtocol
             case "stop":
                HandleStop();
                return;
+               
+            case "ponderhit":
+               HandlePonderHit();
+               return;
 
             case "quit":
                return;
@@ -182,6 +189,10 @@ public class UciProtocol
          case "stop":
             HandleStop();
             break;
+            
+         case "ponderhit":
+            HandlePonderHit();
+            break;
 
          case "setoption":
             HandleSetOption(tokens);
@@ -220,6 +231,7 @@ public class UciProtocol
       // Engine options
       Console.WriteLine("option name Hash type spin default 128 min 1 max 16384");
       Console.WriteLine($"option name Threads type spin default 1 min 1 max {Environment.ProcessorCount}");
+      Console.WriteLine("option name Ponder type check default false");
       
       Console.WriteLine("uciok");
    }
@@ -231,9 +243,9 @@ public class UciProtocol
    {
       StopSearchAndCleanup(suppressOutput: true); // Stop any ongoing search
       currentPosition = Position.StartingPosition();
-      moveHistory.Clear();
       searchEngine.ClearTT();
       searchEngine.ClearMoveOrdering();
+      isPondering = false;
    }
 
    /// <summary>
@@ -278,8 +290,6 @@ public class UciProtocol
       }
 
       // Parse moves
-      moveHistory.Clear();
-
       if (index < tokens.Length && tokens[index] == "moves")
       {
          index++;
@@ -291,7 +301,6 @@ public class UciProtocol
             if (move != Move.Null)
             {
                currentPosition.MakeMove(move);
-               moveHistory.Add(move);
             } else
             {
                // Silently ignore invalid moves for Fritz compatibility
@@ -321,6 +330,7 @@ public class UciProtocol
       var blackInc = 0;
       var movesToGo = 40; // Default moves to time control
       var infinite = false;
+      var ponder = false;
 
       for (var i = 1; i < tokens.Length; i++)
       {
@@ -392,6 +402,10 @@ public class UciProtocol
             case "infinite":
                infinite = true;
                break;
+               
+            case "ponder":
+               ponder = true;
+               break;
          }
       }
 
@@ -421,7 +435,17 @@ public class UciProtocol
       StopSearchAndCleanup(suppressOutput: false);
       
       // Start new search
-      StartNewSearch(currentPosition, depth, moveTime, infinite);
+      if (ponder)
+      {
+         isPondering = true;
+         ponderTimeRemaining = moveTime;
+         StartNewSearch(currentPosition, depth, int.MaxValue, true); // Ponder with infinite time until ponderhit
+      }
+      else
+      {
+         isPondering = false;
+         StartNewSearch(currentPosition, depth, moveTime, infinite);
+      }
    }
 
    /// <summary>
@@ -471,7 +495,9 @@ public class UciProtocol
             break;
 
          case "ponder":
-            // Ignored for now - no pondering support
+            // Ponder option is accepted for UCI compatibility but not currently used
+            // The engine declares support for pondering but doesn't implement it yet
+            _ = bool.TryParse(optionValue, out _);
             break;
       }
    }
@@ -498,7 +524,34 @@ public class UciProtocol
    private void HandleStop()
    {
       suppressBestMove = false; // GUI explicitly wants bestmove
+      isPondering = false;
       StopSearchAndCleanup(suppressOutput: false);
+   }
+   
+   /// <summary>
+   ///    Handles the ponderhit command.
+   /// </summary>
+   private void HandlePonderHit()
+   {
+      if (!isPondering)
+         return;
+         
+      isPondering = false;
+      
+      // Continue the search with the remaining time
+      // The search is already running, we just need to set a time limit
+      lock (searchLock)
+      {
+         if (searchTask is { IsCompleted: false } && searchCts != null)
+         {
+            // Create a new timer task to stop the search after the remaining time
+            Task.Run(async () =>
+            {
+               await Task.Delay(ponderTimeRemaining);
+               searchEngine.StopSearch();
+            });
+         }
+      }
    }
    
    /// <summary>
@@ -620,7 +673,7 @@ public class UciProtocol
       // Wait for any ongoing operations to complete
       lock (searchLock)
       {
-         if (searchTask != null && !searchTask.IsCompleted)
+         if (searchTask is { IsCompleted: false })
          {
             try
             {
@@ -708,7 +761,7 @@ public class UciProtocol
                }
                
                // Wait for search task to complete if needed
-               if (searchTask != null && !searchTask.IsCompleted)
+               if (searchTask is { IsCompleted: false })
                {
                   // Use a shorter timeout for position changes
                   var timeout = suppressOutput ? 100 : 1000;
@@ -792,14 +845,13 @@ public class UciProtocol
                // For infinite search, use a very long time and rely on stop command
                var searchTime = infinite ? int.MaxValue : moveTime;
                var bestMove = searchEngine.Search(searchPosition, depth, searchTime, token);
-               
-               
+               var ponderMove = searchEngine.GetPonderMove();
                
                // Check if we should output the result
                // Always output bestmove unless explicitly suppressed
                if (!suppressBestMove)
                {
-                  OutputBestMove(bestMove);
+                  OutputBestMove(bestMove, ponderMove);
                }
             }
             catch (OperationCanceledException)
@@ -808,7 +860,8 @@ public class UciProtocol
                if (!suppressBestMove)
                {
                   var currentBestMove = searchEngine.GetBestMove();
-                  OutputBestMove(currentBestMove);
+                  var currentPonderMove = searchEngine.GetPonderMove();
+                  OutputBestMove(currentBestMove, currentPonderMove);
                }
             }
             catch (Exception ex)
@@ -830,11 +883,15 @@ public class UciProtocol
    /// <summary>
    ///    Outputs the best move to the GUI.
    /// </summary>
-   private void OutputBestMove(Move move)
+   private void OutputBestMove(Move move, Move ponderMove = default)
    {
-      
       if (move != Move.Null)
-         Console.WriteLine($"bestmove {move.ToAlgebraic()}");
+      {
+         if (!ponderMove.IsNull)
+            Console.WriteLine($"bestmove {move.ToAlgebraic()} ponder {ponderMove.ToAlgebraic()}");
+         else
+            Console.WriteLine($"bestmove {move.ToAlgebraic()}");
+      }
       else
          Console.WriteLine("bestmove 0000");
       Console.Out.Flush();
