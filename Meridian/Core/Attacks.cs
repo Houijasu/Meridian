@@ -76,34 +76,19 @@ public static class Attacks
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong GetKnightAttacks(Square square)
-    {
-        return KnightAttacks[(int)square];
-    }
+    public static ulong GetKnightAttacks(Square square) => KnightAttacks[(int)square];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong GetKingAttacks(Square square)
-    {
-        return KingAttacks[(int)square];
-    }
+    public static ulong GetKingAttacks(Square square) => KingAttacks[(int)square];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong GetPawnAttacks(Square square, Color color)
-    {
-        return PawnAttacks[(int)color * 64 + (int)square];
-    }
+    public static ulong GetPawnAttacks(Square square, Color color) => PawnAttacks[(int)color * 64 + (int)square];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong GetRookAttacks(Square square, ulong occupied)
-    {
-        return MagicBitboards.GetRookAttacks((int)square, occupied);
-    }
+    public static ulong GetRookAttacks(Square square, ulong occupied) => MagicBitboards.GetRookAttacks((int)square, occupied);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong GetBishopAttacks(Square square, ulong occupied)
-    {
-        return MagicBitboards.GetBishopAttacks((int)square, occupied);
-    }
+    public static ulong GetBishopAttacks(Square square, ulong occupied) => MagicBitboards.GetBishopAttacks((int)square, occupied);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ulong GetQueenAttacks(Square square, ulong occupied)
@@ -112,19 +97,16 @@ public static class Attacks
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong GetPieceAttacks(Piece piece, Square square, ulong occupied, Color color)
+    public static ulong GetPieceAttacks(Piece piece, Square square, ulong occupied, Color color) => piece switch
     {
-        return piece switch
-        {
-            Piece.Pawn => GetPawnAttacks(square, color),
-            Piece.Knight => GetKnightAttacks(square),
-            Piece.Bishop => GetBishopAttacks(square, occupied),
-            Piece.Rook => GetRookAttacks(square, occupied),
-            Piece.Queen => GetQueenAttacks(square, occupied),
-            Piece.King => GetKingAttacks(square),
-            _ => 0
-        };
-    }
+        Piece.Pawn => GetPawnAttacks(square, color),
+        Piece.Knight => GetKnightAttacks(square),
+        Piece.Bishop => GetBishopAttacks(square, occupied),
+        Piece.Rook => GetRookAttacks(square, occupied),
+        Piece.Queen => GetQueenAttacks(square, occupied),
+        Piece.King => GetKingAttacks(square),
+        _ => 0
+    };
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ulong GetAttackers(ref BoardState board, Square square, ulong occupied)

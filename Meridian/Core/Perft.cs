@@ -12,27 +12,27 @@ public static class Perft
         // Standard positions with known perft values
         TestPosition("Starting Position", 
             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            new[] { 20UL, 400UL, 8902UL, 197281UL, 4865609UL });
+            [20UL, 400UL, 8902UL, 197281UL, 4865609UL]);
         
         TestPosition("Position 2 (Kiwipete)", 
             "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-            new[] { 48UL, 2039UL, 97862UL, 4085603UL });
+            [48UL, 2039UL, 97862UL, 4085603UL]);
         
         TestPosition("Position 3", 
             "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-            new[] { 14UL, 191UL, 2812UL, 43238UL, 674624UL });
+            [14UL, 191UL, 2812UL, 43238UL, 674624UL]);
         
         TestPosition("Position 4", 
             "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
-            new[] { 6UL, 264UL, 9467UL, 422333UL });
+            [6UL, 264UL, 9467UL, 422333UL]);
         
         TestPosition("Position 5", 
             "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
-            new[] { 44UL, 1486UL, 62379UL, 2103487UL });
+            [44UL, 1486UL, 62379UL, 2103487UL]);
         
         TestPosition("Position 6",
             "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
-            new[] { 46UL, 2079UL, 89890UL, 3894594UL });
+            [46UL, 2079UL, 89890UL, 3894594UL]);
     }
 
     private static void TestPosition(string name, string fen, ulong[] expectedNodes)
