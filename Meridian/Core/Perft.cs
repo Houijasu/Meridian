@@ -67,7 +67,7 @@ public static class Perft
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static ulong PerftRoot(ref BoardState board, int depth)
-    {
+    {C
         if (depth == 0) return 1;
         
         MoveList moves = new();

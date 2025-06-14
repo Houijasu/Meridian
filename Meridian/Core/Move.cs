@@ -2,6 +2,7 @@ namespace Meridian.Core;
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Meridian.Common;
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct Move
@@ -124,11 +125,25 @@ public ref struct MoveList
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Add(Move move)
+    public bool TryAdd(Move move)
     {
         if (Count >= MaxMoves)
-            throw new InvalidOperationException($"MoveList overflow: trying to add move {Count + 1} but max is {MaxMoves}");
+            return false;
             
+        unsafe
+        {
+            _moves[Count++] = Unsafe.As<Move, uint>(ref move);
+        }
+        return true;
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Add(Move move)
+    {
+#if DEBUG
+        if (Count >= MaxMoves)
+            throw new InvalidOperationException($"MoveList overflow: trying to add move {Count + 1} but max is {MaxMoves}");
+#endif
         unsafe
         {
             _moves[Count++] = Unsafe.As<Move, uint>(ref move);
@@ -137,16 +152,48 @@ public ref struct MoveList
 
     public readonly Move this[int index]
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
+#if DEBUG
             if (index < 0 || index >= Count)
                 throw new IndexOutOfRangeException($"Index {index} is out of range. Count is {Count}");
-                
+#endif
             unsafe
             {
                 uint value = _moves[index];
                 return Unsafe.As<uint, Move>(ref value);
             }
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly bool TryGetMove(int index, out Move move)
+    {
+        if (index < 0 || index >= Count)
+        {
+            move = default;
+            return false;
+        }
+        
+        unsafe
+        {
+            uint value = _moves[index];
+            move = Unsafe.As<uint, Move>(ref value);
+            return true;
+        }
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly Option<Move> GetMove(int index)
+    {
+        if (index < 0 || index >= Count)
+            return Option<Move>.None();
+            
+        unsafe
+        {
+            uint value = _moves[index];
+            return Option<Move>.Some(Unsafe.As<uint, Move>(ref value));
         }
     }
 
