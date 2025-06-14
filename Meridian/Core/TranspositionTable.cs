@@ -41,7 +41,7 @@ public sealed class TranspositionTable
     public TranspositionTable(int sizeMB = DefaultSizeMB)
     {
         // Calculate number of entries
-        int entrySize = Marshal.SizeOf<TTEntry>();
+        int entrySize = Unsafe.SizeOf<TTEntry>();
         int numEntries = (sizeMB * 1024 * 1024) / entrySize;
         
         // Round down to power of 2 for fast indexing
