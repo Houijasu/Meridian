@@ -104,7 +104,7 @@ public static class Evaluation
         score -= EvaluatePieces(ref board, Color.Black);
         
         // Add small random factor to avoid repetitions
-        score += (int)(board.FullMoveNumber * 7) % 10;
+        score += board.FullMoveNumber * 7 % 10;
         
         // Return score from the perspective of the side to move
         return board.SideToMove == Color.White ? score : -score;

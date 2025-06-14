@@ -1,7 +1,5 @@
 namespace Meridian.Core;
 
-using System.Runtime.CompilerServices;
-
 /// <summary>
 /// Simplified move ordering that modifies move array in place
 /// </summary>
@@ -65,7 +63,7 @@ public sealed class MoveOrderingSimple
     private int ScoreMove(ref BoardState board, Move move, Move hashMove, int ply)
     {
         // Hash move
-        if (move.Equals(hashMove))
+        if (move.Data == hashMove.Data)
             return HashMoveScore;
         
         // Captures - MVV-LVA
@@ -79,7 +77,7 @@ public sealed class MoveOrderingSimple
         }
         
         // Killer moves
-        if (ply < MaxPly && (move.Equals(_killerMoves[ply, 0]) || move.Equals(_killerMoves[ply, 1])))
+        if (ply < MaxPly && (move.Data == _killerMoves[ply, 0].Data || move.Data == _killerMoves[ply, 1].Data))
             return KillerMoveScore;
         
         // History heuristic
@@ -150,7 +148,7 @@ public sealed class MoveOrderingSimple
     {
         if (ply >= MaxPly || move.IsCapture()) return;
         
-        if (_killerMoves[ply, 0].Equals(move)) return;
+        if (_killerMoves[ply, 0].Data == move.Data) return;
         
         _killerMoves[ply, 1] = _killerMoves[ply, 0];
         _killerMoves[ply, 0] = move;
@@ -183,5 +181,10 @@ public sealed class MoveOrderingSimple
         for (int i = 0; i < 64; i++)
             for (int j = 0; j < 64; j++)
                 _historyTable[i, j] = _historyTable[i, j] * 3 / 4;
+    }
+    
+    public int GetHistoryScore(Move move)
+    {
+        return _historyTable[(int)move.From, (int)move.To];
     }
 }

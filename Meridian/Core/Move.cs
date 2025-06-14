@@ -6,8 +6,6 @@ using System.Runtime.InteropServices;
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct Move
 {
-    private readonly uint _data;
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Move(Square from, Square to, MoveType type = MoveType.Normal, Piece promotionPiece = Piece.None)
     {
@@ -17,43 +15,43 @@ public readonly struct Move
         // 12-13 : move type (Normal=0, Capture=1, Castle=2, EnPassant=3)
         // 14-16 : promotion piece (0=None, 1=Queen, 2=Rook, 3=Bishop, 4=Knight)
 
-        _data = (uint)from | ((uint)to << 6) | ((uint)type << 12) | ((uint)promotionPiece << 14);
+        Data = (uint)from | ((uint)to << 6) | ((uint)type << 12) | ((uint)promotionPiece << 14);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Move(uint data)
     {
-        _data = data;
+        Data = data;
     }
 
     public uint Data
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _data;
+        get;
     }
 
     public Square From
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => (Square)(_data & 0x3F);
+        get => (Square)(Data & 0x3F);
     }
 
     public Square To
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => (Square)((_data >> 6) & 0x3F);
+        get => (Square)((Data >> 6) & 0x3F);
     }
 
     public MoveType Type
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => (MoveType)((_data >> 12) & 0x3);
+        get => (MoveType)((Data >> 12) & 0x3);
     }
 
     public Piece PromotionPiece
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => (Piece)((_data >> 14) & 0x7);
+        get => (Piece)((Data >> 14) & 0x7);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -63,7 +61,7 @@ public readonly struct Move
     public bool IsPromotion()
     {
         // A move is a promotion if the promotion piece field is non-zero
-        return ((_data >> 14) & 0x7) != 0;
+        return ((Data >> 14) & 0x7) != 0;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -76,7 +74,7 @@ public readonly struct Move
 
     public override string ToString()
     {
-        if (_data == 0) return "null";
+        if (Data == 0) return "null";
         
         char[] notation = new char[5];
         int index = 0;
@@ -116,24 +114,24 @@ public enum MoveType : byte
 public ref struct MoveList
 {
     public const int MaxMoves = 256;
-    private int _count;
     private unsafe fixed uint _moves[MaxMoves];
 
-    public readonly int Count
+    public int Count
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _count;
+        get;
+        private set;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(Move move)
     {
-        if (_count >= MaxMoves)
-            throw new InvalidOperationException($"MoveList overflow: trying to add move {_count + 1} but max is {MaxMoves}");
+        if (Count >= MaxMoves)
+            throw new InvalidOperationException($"MoveList overflow: trying to add move {Count + 1} but max is {MaxMoves}");
             
         unsafe
         {
-            _moves[_count++] = Unsafe.As<Move, uint>(ref move);
+            _moves[Count++] = Unsafe.As<Move, uint>(ref move);
         }
     }
 
@@ -141,8 +139,8 @@ public ref struct MoveList
     {
         get
         {
-            if (index < 0 || index >= _count)
-                throw new IndexOutOfRangeException($"Index {index} is out of range. Count is {_count}");
+            if (index < 0 || index >= Count)
+                throw new IndexOutOfRangeException($"Index {index} is out of range. Count is {Count}");
                 
             unsafe
             {
@@ -155,7 +153,7 @@ public ref struct MoveList
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Clear()
     {
-        _count = 0;
+        Count = 0;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -163,7 +161,7 @@ public ref struct MoveList
     {
         fixed (uint* ptr = _moves)
         {
-            return new Span<Move>((Move*)ptr, _count);
+            return new Span<Move>((Move*)ptr, Count);
         }
     }
 }

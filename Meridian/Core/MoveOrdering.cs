@@ -1,7 +1,6 @@
 namespace Meridian.Core;
 
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 /// <summary>
 /// Move ordering system for improving alpha-beta search efficiency
@@ -97,7 +96,7 @@ public sealed class MoveOrdering
     private int ScoreMove(ref BoardState board, Move move, Move hashMove, int ply)
     {
         // Hash move gets highest priority
-        if (move.Equals(hashMove))
+        if (move.Data == hashMove.Data)
             return HashMoveScore;
         
         // Score captures using MVV-LVA
@@ -260,7 +259,7 @@ public sealed class MoveOrdering
         
         for (int i = 0; i < KillersPerPly; i++)
         {
-            if (_killerMoves[ply, i].Equals(move))
+            if (_killerMoves[ply, i].Data == move.Data)
                 return true;
         }
         return false;
@@ -274,7 +273,7 @@ public sealed class MoveOrdering
         if (ply >= MaxPly || move.IsCapture()) return;
         
         // Don't store the same move twice
-        if (_killerMoves[ply, 0].Equals(move)) return;
+        if (_killerMoves[ply, 0].Data == move.Data) return;
         
         // Shift killer moves and add new one
         _killerMoves[ply, 1] = _killerMoves[ply, 0];
