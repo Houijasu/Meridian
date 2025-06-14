@@ -115,7 +115,7 @@ public enum MoveType : byte
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public ref struct MoveList
 {
-    private const int MaxMoves = 256;
+    public const int MaxMoves = 256;
     private int _count;
     private unsafe fixed uint _moves[MaxMoves];
 
@@ -128,6 +128,9 @@ public ref struct MoveList
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(Move move)
     {
+        if (_count >= MaxMoves)
+            throw new InvalidOperationException($"MoveList overflow: trying to add move {_count + 1} but max is {MaxMoves}");
+            
         unsafe
         {
             _moves[_count++] = Unsafe.As<Move, uint>(ref move);
@@ -138,6 +141,9 @@ public ref struct MoveList
     {
         get
         {
+            if (index < 0 || index >= _count)
+                throw new IndexOutOfRangeException($"Index {index} is out of range. Count is {_count}");
+                
             unsafe
             {
                 uint value = _moves[index];

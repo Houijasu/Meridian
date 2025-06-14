@@ -26,10 +26,14 @@ public sealed class Search
     // Transposition table
     private readonly TranspositionTable _tt;
     
+    // Move ordering
+    private readonly MoveOrderingSimple _moveOrdering;
+    
     public Search()
     {
         _stopwatch = new System.Diagnostics.Stopwatch();
         _tt = new TranspositionTable(128); // 128 MB default
+        _moveOrdering = new MoveOrderingSimple();
     }
     
     public Move FindBestMove(ref BoardState board, int depthLimit, long timeLimitMs = long.MaxValue)
@@ -40,6 +44,11 @@ public sealed class Search
         BestScore = -Infinity;
         _shouldStop = false;
         _timeLimit = timeLimitMs;
+        
+        // Clear killer moves for new search
+        _moveOrdering.ClearKillers();
+        // Age history table
+        _moveOrdering.AgeHistory();
         
         _stopwatch.Restart();
         
@@ -72,6 +81,10 @@ public sealed class Search
     
     private int AlphaBeta(ref BoardState board, int depth, int alpha, int beta, bool isRoot, int ply = 0)
     {
+        // Prevent stack overflow
+        if (ply >= MaxDepth - 1)
+            return Evaluation.Evaluate(ref board);
+            
         if (_shouldStop || _stopwatch.ElapsedMilliseconds > _timeLimit)
         {
             _shouldStop = true;
@@ -115,11 +128,38 @@ public sealed class Search
         // Leaf node - return evaluation
         if (depth == 0)
             return Quiescence(ref board, alpha, beta);
+            
+        // Null move pruning
+        if (!isRoot && depth >= 3 && !IsKingInCheck(ref board, board.SideToMove))
+        {
+            // Make null move (just switch sides)
+            BoardState nullBoard = board;
+            nullBoard.SideToMove = nullBoard.SideToMove.Opposite();
+            nullBoard.EnPassantSquare = Square.None;
+            nullBoard.Hash = Zobrist.ToggleSideToMove(nullBoard.Hash);
+            if (board.EnPassantSquare != Square.None)
+                nullBoard.Hash = Zobrist.ToggleEnPassant(nullBoard.Hash, board.EnPassantSquare, Square.None);
+            
+            // Search with reduced depth (R=2 or R=3)
+            int R = depth >= 6 ? 3 : 2;
+            int nullScore = -AlphaBeta(ref nullBoard, depth - R - 1, -beta, -beta + 1, false, ply + 1);
+            
+            // If null move fails high, we can prune
+            if (nullScore >= beta)
+            {
+                // Avoid zugzwang in endgames with few pieces
+                int pieceCount = Bitboard.PopCount(board.AllPieces);
+                if (pieceCount > 7) // Not an endgame
+                    return beta;
+            }
+        }
         
         // Generate all legal moves
         MoveList moves = new();
         MoveGenerator.GenerateAllMoves(ref board, ref moves);
         
+        // For now, skip move ordering to avoid ref struct issues
+        // TODO: Implement move ordering without ref struct complications
         
         // Filter out illegal moves and count legal ones
         int legalMoves = 0;
@@ -139,8 +179,45 @@ public sealed class Search
             
             legalMoves++;
             
-            // Recursive search
-            int score = -AlphaBeta(ref board, depth - 1, -beta, -alpha, false, ply + 1);
+            // Late Move Reductions (LMR)
+            int newDepth = depth - 1;
+            bool doFullSearch = true;
+            
+            // Apply LMR for late quiet moves
+            if (depth >= 3 && legalMoves > 3 && !moves[i].IsCapture() && !IsKingInCheck(ref board, board.SideToMove))
+            {
+                // Reduce depth for late quiet moves
+                int reduction = 1;
+                if (legalMoves > 6) reduction = 2;
+                if (depth >= 6 && legalMoves > 12) reduction = 3;
+                
+                newDepth = Math.Max(1, depth - 1 - reduction);
+                
+                // Search with reduced depth
+                int score = -AlphaBeta(ref board, newDepth, -alpha - 1, -alpha, false, ply + 1);
+                
+                // If the move fails high, research at full depth
+                if (score > alpha)
+                {
+                    newDepth = depth - 1;
+                }
+                else
+                {
+                    doFullSearch = false;
+                }
+            }
+            
+            // Full depth search
+            int finalScore = 0;
+            if (doFullSearch)
+            {
+                finalScore = -AlphaBeta(ref board, newDepth, -beta, -alpha, false, ply + 1);
+            }
+            else
+            {
+                // Use the LMR score
+                finalScore = -AlphaBeta(ref board, newDepth, -alpha - 1, -alpha, false, ply + 1);
+            }
             
             board = copy;
             
@@ -148,9 +225,9 @@ public sealed class Search
                 return 0;
             
             // Update best move
-            if (score > alpha)
+            if (finalScore > alpha)
             {
-                alpha = score;
+                alpha = finalScore;
                 bestMoveInPosition = moves[i];
                 
                 if (isRoot)
@@ -160,7 +237,15 @@ public sealed class Search
                 
                 // Beta cutoff
                 if (alpha >= beta)
+                {
+                    // Update move ordering heuristics
+                    if (!moves[i].IsCapture())
+                    {
+                        _moveOrdering.UpdateKillers(moves[i], ply);
+                        _moveOrdering.UpdateHistory(moves[i], depth);
+                    }
                     break;
+                }
             }
         }
         
@@ -206,12 +291,15 @@ public sealed class Search
         MoveList moves = new();
         MoveGenerator.GenerateAllMoves(ref board, ref moves);
         
+        // For now, search captures without ordering
+        // TODO: Implement capture ordering without ref struct issues
+        
         for (int i = 0; i < moves.Count; i++)
         {
             // Only search captures
             if (!moves[i].IsCapture())
                 continue;
-            
+                
             BoardState copy = board;
             board.MakeMove(moves[i]);
             
