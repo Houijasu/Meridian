@@ -2,6 +2,25 @@
 
 A high-performance chess engine written in C# with zero-allocation design principles.
 
+## Usage
+
+### UCI Mode (for Chess GUIs)
+```bash
+Meridian.exe uci
+```
+Compatible with any UCI-compliant chess GUI such as:
+- Arena
+- Cutechess
+- Scid vs PC
+- ChessBase
+- Lichess Bot
+
+### Console Mode
+```bash
+Meridian.exe
+```
+Interactive console with commands for testing and playing.
+
 ## Features
 
 ### Core Engine
@@ -26,5 +45,7 @@ A high-performance chess engine written in C# with zero-allocation design princi
 - **Separate king position tables** for middlegame and endgame
 
 ### Interface
+- **UCI Protocol support** for chess GUI compatibility
 - **Interactive console interface** for playing chess
 - **FEN support** for position setup
+- **Extensible protocol system** via IProtocol interface

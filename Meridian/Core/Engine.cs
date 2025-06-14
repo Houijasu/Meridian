@@ -118,6 +118,11 @@ public sealed class Engine
         return _currentFen;
     }
     
+    public BoardState GetBoard()
+    {
+        return FenParser.Parse(_currentFen);
+    }
+    
     public void PrintBoard()
     {
         var board = FenParser.Parse(_currentFen);
