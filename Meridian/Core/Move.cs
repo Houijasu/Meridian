@@ -6,35 +6,18 @@ using System.Runtime.InteropServices;
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct Move
 {
-    private readonly ushort _data;
+    private readonly uint _data;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Move(Square from, Square to, MoveType type = MoveType.Normal, Piece promotionPiece = Piece.None)
     {
-        // New layout to avoid conflicts:
-        // Bits 0-5: from square (6 bits)
-        // Bits 6-11: to square (6 bits)
-        // Bits 12-13: move type (2 bits: Normal=0, Capture=1, Castle=2, EnPassant=3)
-        // Bits 14-15: promotion piece (2 bits: None=0, Queen=1, Rook=2, Bishop/Knight=3)
-        // When bits 14-15 = 3, we distinguish Bishop vs Knight by checking if it's a capture
-        // Bishop promotion = Normal move + promo bits 3
-        // Knight promotion = Capture move + promo bits 3
-        
-        _data = (ushort)((int)from | ((int)to << 6) | ((int)type << 12));
-        
-        if (promotionPiece != Piece.None)
-        {
-            int promoBits = promotionPiece switch
-            {
-                Piece.Queen => 1,
-                Piece.Rook => 2,
-                Piece.Bishop => 3,
-                Piece.Knight => 3, // Same as Bishop, distinguished by context
-                _ => 0
-            };
-            
-            _data |= (ushort)(promoBits << 14);
-        }
+        // Layout (low to high bits):
+        // 0-5   : from square
+        // 6-11  : to square
+        // 12-13 : move type (Normal=0, Capture=1, Castle=2, EnPassant=3)
+        // 14-16 : promotion piece (0=None, 1=Queen, 2=Rook, 3=Bishop, 4=Knight)
+
+        _data = (uint)from | ((uint)to << 6) | ((uint)type << 12) | ((uint)promotionPiece << 14);
     }
 
     public Square From
@@ -52,42 +35,13 @@ public readonly struct Move
     public MoveType Type
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get
-        {
-            // Extract the type bits (12-13) but mask off promotion bits
-            // This ensures type is always preserved correctly
-            return (MoveType)((_data >> 12) & 0x3);
-        }
+        get => (MoveType)((_data >> 12) & 0x3);
     }
 
     public Piece PromotionPiece
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get
-        {
-            // Extract promotion bits from bits 14-15
-            int promoBits = (_data >> 14) & 0x3;
-            
-            if (promoBits == 0)
-                return Piece.None;
-            
-            // For Bishop vs Knight disambiguation when promoBits == 3:
-            // We use the file of the destination square as a tiebreaker
-            // This is a hack but works because promotions are deterministic
-            if (promoBits == 3)
-            {
-                // Use destination file to distinguish: even = Bishop, odd = Knight
-                int toFile = (int)To.GetFile();
-                return (toFile & 1) == 0 ? Piece.Bishop : Piece.Knight;
-            }
-                
-            return promoBits switch
-            {
-                1 => Piece.Queen,
-                2 => Piece.Rook,
-                _ => Piece.None
-            };
-        }
+        get => (Piece)((_data >> 14) & 0x7);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -96,8 +50,8 @@ public readonly struct Move
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsPromotion()
     {
-        // A move is a promotion if promotion bits (14-15) are non-zero
-        return ((_data >> 14) & 0x3) != 0;
+        // A move is a promotion if the promotion piece field is non-zero
+        return ((_data >> 14) & 0x7) != 0;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -151,7 +105,7 @@ public ref struct MoveList
 {
     private const int MaxMoves = 256;
     private int _count;
-    private unsafe fixed ushort _moves[MaxMoves];
+    private unsafe fixed uint _moves[MaxMoves];
 
     public readonly int Count
     {
@@ -164,7 +118,7 @@ public ref struct MoveList
     {
         unsafe
         {
-            _moves[_count++] = Unsafe.As<Move, ushort>(ref move);
+            _moves[_count++] = Unsafe.As<Move, uint>(ref move);
         }
     }
 
@@ -174,8 +128,8 @@ public ref struct MoveList
         {
             unsafe
             {
-                ushort value = _moves[index];
-                return Unsafe.As<ushort, Move>(ref value);
+                uint value = _moves[index];
+                return Unsafe.As<uint, Move>(ref value);
             }
         }
     }

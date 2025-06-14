@@ -127,15 +127,25 @@ public static class MakeMoveExtensions
                 board.CastlingRights &= ~CastlingRights.BlackKingSide;
         }
         
-        // Rook captures
-        if (move.To == Square.A1)
-            board.CastlingRights &= ~CastlingRights.WhiteQueenSide;
-        else if (move.To == Square.H1)
-            board.CastlingRights &= ~CastlingRights.WhiteKingSide;
-        else if (move.To == Square.A8)
-            board.CastlingRights &= ~CastlingRights.BlackQueenSide;
-        else if (move.To == Square.H8)
-            board.CastlingRights &= ~CastlingRights.BlackKingSide;
+        // Rook captures - only update if an opposing rook is actually captured
+        var (capturedPiece, capturedColor) = board.GetPieceAt(move.To);
+        if (capturedPiece == Piece.Rook)
+        {
+            if (capturedColor == Color.White)
+            {
+                if (move.To == Square.A1)
+                    board.CastlingRights &= ~CastlingRights.WhiteQueenSide;
+                else if (move.To == Square.H1)
+                    board.CastlingRights &= ~CastlingRights.WhiteKingSide;
+            }
+            else // capturedColor == Color.Black
+            {
+                if (move.To == Square.A8)
+                    board.CastlingRights &= ~CastlingRights.BlackQueenSide;
+                else if (move.To == Square.H8)
+                    board.CastlingRights &= ~CastlingRights.BlackKingSide;
+            }
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
