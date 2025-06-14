@@ -19,7 +19,7 @@ public sealed class Search
     public int BestScore { get; private set; }
     
     // Time management
-    private readonly System.Diagnostics.Stopwatch _stopwatch = new();
+    private readonly System.Diagnostics.Stopwatch _stopwatch;
     private long _timeLimit;
     private bool _shouldStop;
     
@@ -157,9 +157,12 @@ public sealed class Search
         // Generate all legal moves
         MoveList moves = new();
         MoveGenerator.GenerateAllMoves(ref board, ref moves);
-        
-        // For now, skip move ordering to avoid ref struct issues
-        // TODO: Implement move ordering without ref struct complications
+
+        // Score and order moves using history and killer heuristics
+        Span<Move> moveSpan = moves.AsSpan();
+        Span<int> scores = stackalloc int[moves.Count];
+        _moveOrdering.ScoreMoves(ref board, moveSpan, moves.Count, scores, ttMove, ply);
+        MoveOrderingSimple.PartialSort(moveSpan, scores, moves.Count, 12);
         
         // Filter out illegal moves and count legal ones
         int legalMoves = 0;
@@ -168,7 +171,7 @@ public sealed class Search
         for (int i = 0; i < moves.Count; i++)
         {
             BoardState copy = board;
-            board.MakeMove(moves[i]);
+            board.MakeMove(moveSpan[i]);
             
             // Skip if move leaves king in check
             if (IsKingInCheck(ref board, board.SideToMove.Opposite()))
@@ -184,7 +187,7 @@ public sealed class Search
             bool doFullSearch = true;
             
             // Apply LMR for late quiet moves
-            if (depth >= 3 && legalMoves > 3 && !moves[i].IsCapture() && !IsKingInCheck(ref board, board.SideToMove))
+            if (depth >= 3 && legalMoves > 3 && !moveSpan[i].IsCapture() && !IsKingInCheck(ref board, board.SideToMove))
             {
                 // Reduce depth for late quiet moves
                 int reduction = 1;
@@ -228,21 +231,21 @@ public sealed class Search
             if (finalScore > alpha)
             {
                 alpha = finalScore;
-                bestMoveInPosition = moves[i];
+                bestMoveInPosition = moveSpan[i];
                 
                 if (isRoot)
                 {
-                    BestMove = moves[i];
+                    BestMove = moveSpan[i];
                 }
                 
                 // Beta cutoff
                 if (alpha >= beta)
                 {
                     // Update move ordering heuristics
-                    if (!moves[i].IsCapture())
+                    if (!moveSpan[i].IsCapture())
                     {
-                        _moveOrdering.UpdateKillers(moves[i], ply);
-                        _moveOrdering.UpdateHistory(moves[i], depth);
+                        _moveOrdering.UpdateKillers(moveSpan[i], ply);
+                        _moveOrdering.UpdateHistory(moveSpan[i], depth);
                     }
                     break;
                 }
@@ -291,17 +294,20 @@ public sealed class Search
         MoveList moves = new();
         MoveGenerator.GenerateAllMoves(ref board, ref moves);
         
-        // For now, search captures without ordering
-        // TODO: Implement capture ordering without ref struct issues
-        
+        // Order capture moves using MVV-LVA
+        Span<Move> moveSpan = moves.AsSpan();
+        Span<int> scores = stackalloc int[moves.Count];
+        _moveOrdering.ScoreMoves(ref board, moveSpan, moves.Count, scores, default, 0);
+        MoveOrderingSimple.PartialSort(moveSpan, scores, moves.Count, moves.Count);
+
         for (int i = 0; i < moves.Count; i++)
         {
             // Only search captures
-            if (!moves[i].IsCapture())
+            if (!moveSpan[i].IsCapture())
                 continue;
                 
             BoardState copy = board;
-            board.MakeMove(moves[i]);
+            board.MakeMove(moveSpan[i]);
             
             // Skip if move leaves king in check
             if (IsKingInCheck(ref board, board.SideToMove.Opposite()))

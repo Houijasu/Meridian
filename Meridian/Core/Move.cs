@@ -157,4 +157,13 @@ public ref struct MoveList
     {
         _count = 0;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public readonly unsafe Span<Move> AsSpan()
+    {
+        fixed (uint* ptr = _moves)
+        {
+            return new Span<Move>((Move*)ptr, _count);
+        }
+    }
 }
