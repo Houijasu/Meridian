@@ -29,6 +29,10 @@ public sealed class Search
     // Move ordering
     private readonly MoveOrderingSimple _moveOrdering;
     
+    // Principal variation
+    private readonly Move[,] _pvTable = new Move[MaxDepth, MaxDepth];
+    private readonly int[] _pvLength = new int[MaxDepth];
+    
     public Search()
     {
         _tt = new TranspositionTable(); // 128 MB default
@@ -49,24 +53,51 @@ public sealed class Search
         // Age history table
         _moveOrdering.AgeHistory();
         
+        // Clear PV
+        Array.Clear(_pvLength, 0, _pvLength.Length);
+        
         _stopwatch.Restart();
         
         // Iterative deepening
         for (int depth = 1; depth <= depthLimit && !_shouldStop; depth++)
         {
-            int score = AlphaBeta(ref board, depth, -Infinity, Infinity, true);
+            // Reset selective depth for this iteration
+            SelectiveDepth = 0;
+            
+            int score = AlphaBeta(ref board, depth, -Infinity, Infinity, true, 0);
             
             if (!_shouldStop)
             {
                 BestScore = score;
                 
-                // Print search info
+                // Print search info with full PV
                 long timeMs = _stopwatch.ElapsedMilliseconds;
                 if (timeMs > 0)
                 {
                     ulong nps = (NodesSearched * 1000) / (ulong)timeMs;
-                    Console.WriteLine($"info depth {depth} score cp {score} nodes {NodesSearched} nps {nps} time {timeMs} " +
-                                    $"hashfull {(int)(_tt.FillRate() * 10)} hits {_tt.Hits} pv {BestMove}");
+                    
+                    // Build PV string
+                    var pvString = BuildPvString(0);
+                    
+                    // Format score - check for mate
+                    string scoreStr;
+                    if (Math.Abs(score) >= MateScore - 100)
+                    {
+                        // Mate score - calculate moves to mate
+                        int matePlies = MateScore - Math.Abs(score);
+                        int mateInMoves = (matePlies + 1) / 2;
+                        scoreStr = score > 0 ? $"mate {mateInMoves}" : $"mate -{mateInMoves}";
+                    }
+                    else
+                    {
+                        scoreStr = $"cp {score}";
+                    }
+                    
+                    // Output UCI info
+                    Console.WriteLine($"info depth {depth} seldepth {SelectiveDepth} score {scoreStr} " +
+                                    $"nodes {NodesSearched} nps {nps} time {timeMs} " +
+                                    $"hashfull {(int)(_tt.FillRate() * 10)} pv {pvString}");
+                    Console.Out.Flush();
                 }
             }
             
@@ -78,8 +109,26 @@ public sealed class Search
         return BestMove;
     }
     
+    private string BuildPvString(int ply)
+    {
+        var result = new System.Text.StringBuilder();
+        for (int i = 0; i < _pvLength[ply]; i++)
+        {
+            if (i > 0) result.Append(' ');
+            result.Append(_pvTable[ply, ply + i].ToString());
+        }
+        return result.ToString();
+    }
+    
     private int AlphaBeta(ref BoardState board, int depth, int alpha, int beta, bool isRoot, int ply = 0)
     {
+        // Initialize PV length for this ply
+        _pvLength[ply] = 0;
+        
+        // Update selective depth
+        if (ply > SelectiveDepth)
+            SelectiveDepth = ply;
+        
         // Prevent stack overflow
         if (ply >= MaxDepth - 1)
             return Evaluation.Evaluate(ref board);
@@ -91,6 +140,18 @@ public sealed class Search
         }
         
         NodesSearched++;
+        
+        // Output info periodically at root
+        if (isRoot && NodesSearched % 100000 == 0)
+        {
+            long timeMs = _stopwatch.ElapsedMilliseconds;
+            if (timeMs > 0)
+            {
+                ulong nps = (NodesSearched * 1000) / (ulong)timeMs;
+                Console.WriteLine($"info nodes {NodesSearched} nps {nps} time {timeMs}");
+                Console.Out.Flush();
+            }
+        }
         
         // Check for draw by repetition or 50-move rule
         if (!isRoot && (board.HalfMoveClock >= 100 || IsRepetition(ref board)))
@@ -236,6 +297,14 @@ public sealed class Search
             {
                 alpha = finalScore;
                 bestMoveInPosition = moveSpan[i];
+                
+                // Update PV
+                _pvTable[ply, ply] = moveSpan[i];
+                for (int j = 0; j < _pvLength[ply + 1]; j++)
+                {
+                    _pvTable[ply, ply + 1 + j] = _pvTable[ply + 1, ply + 1 + j];
+                }
+                _pvLength[ply] = _pvLength[ply + 1] + 1;
                 
                 if (isRoot)
                 {

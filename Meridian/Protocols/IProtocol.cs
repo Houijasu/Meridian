@@ -13,7 +13,8 @@ public interface IProtocol
     /// <summary>
     /// Start the protocol loop, handling input/output
     /// </summary>
-    void Run();
+    /// <param name="sendInitialUciResponse">Whether to send initial UCI response (for when "uci" was already consumed)</param>
+    void Run(bool sendInitialUciResponse = false);
     
     /// <summary>
     /// Stop the protocol gracefully

@@ -3,49 +3,74 @@ namespace Meridian.Protocols;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Meridian.Core;
+using Core;
 
 /// <summary>
 /// Universal Chess Interface (UCI) protocol implementation
 /// </summary>
-public sealed class UciProtocol : IProtocol
+public sealed class UciProtocol(Engine engine, Search search) : IProtocol, IDisposable
 {
-    private readonly Engine _engine;
-    private readonly Search _search;
+    private readonly UciLogger _logger = new();
     private bool _isRunning;
     private CancellationTokenSource? _searchCancellation;
     
     // UCI constants
-    private const string EngineName = "Meridian";
-    private const string EngineAuthor = "Meridian Team";
-    private const string EngineVersion = "1.0";
-    
-    public UciProtocol(Engine engine, Search search)
-    {
-        _engine = engine ?? throw new ArgumentNullException(nameof(engine));
-        _search = search ?? throw new ArgumentNullException(nameof(search));
-    }
-    
+    public const string EngineName = "Meridian";
+    public const string EngineAuthor = "Meridian Team";
+    public const string EngineVersion = "1.0";
+
     public string Name => "UCI";
     
     public bool IsRunning => _isRunning;
     
-    public void Run()
+    public void Run(bool sendInitialUciResponse = false)
     {
+        // Safety check
+        if (engine == null || search == null)
+            return;
+            
         _isRunning = true;
+        
+        // If we've already consumed the "uci" command in Main, send the response
+        if (sendInitialUciResponse)
+        {
+            _logger.LogInfo("Initial UCI response requested");
+            HandleUci();
+        }
+        
+        _logger.LogInfo("Starting UCI main loop");
         
         while (_isRunning)
         {
-            var input = Console.ReadLine();
-            if (string.IsNullOrWhiteSpace(input))
-                continue;
+            try
+            {
+                var input = Console.ReadLine();
+                _logger.LogInput(input);
                 
-            var tokens = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (tokens.Length == 0)
-                continue;
+                if (input == null) // EOF
+                {
+                    _logger.LogInfo("EOF received, exiting");
+                    _isRunning = false;
+                    break;
+                }
                 
-            ProcessCommand(tokens);
+                if (string.IsNullOrWhiteSpace(input))
+                    continue;
+                    
+                var tokens = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (tokens.Length == 0)
+                    continue;
+                    
+                ProcessCommand(tokens);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error in main loop: {ex.Message}");
+                // Continue on any read errors
+            }
         }
+        
+        _logger.LogInfo("UCI main loop ended");
     }
     
     public void Stop()
@@ -54,11 +79,26 @@ public sealed class UciProtocol : IProtocol
         _searchCancellation?.Cancel();
     }
     
+    public void Dispose() => _logger.Dispose();
+
+    private void SendOutput(string output)
+    {
+        _logger.LogOutput(output);
+        Console.WriteLine(output);
+        Console.Out.Flush();
+    }
+    
     private void ProcessCommand(string[] tokens)
     {
-        switch (tokens[0].ToLowerInvariant())
+        // UCI commands are case-sensitive, but some GUIs might send them in different cases
+        // We'll handle both for compatibility
+        string command = tokens[0];
+        _logger.LogInfo($"Processing command: {command} (tokens: {string.Join(" ", tokens)})");
+        
+        switch (command)
         {
             case "uci":
+            case "UCI":
                 HandleUci();
                 break;
                 
@@ -89,75 +129,91 @@ public sealed class UciProtocol : IProtocol
             case "setoption":
                 HandleSetOption(tokens);
                 break;
-                
-            default:
-                // Unknown command - UCI spec says to ignore
-                break;
         }
     }
     
     private void HandleUci()
     {
-        Console.WriteLine($"id name {EngineName} {EngineVersion}");
-        Console.WriteLine($"id author {EngineAuthor}");
+        SendOutput($"id name {EngineName} {EngineVersion}");
+        SendOutput($"id author {EngineAuthor}");
         
         // Options
-        Console.WriteLine("option name Hash type spin default 128 min 1 max 2048");
-        Console.WriteLine("option name Threads type spin default 1 min 1 max 1");
-        Console.WriteLine("option name Ponder type check default false");
+        SendOutput("option name Hash type spin default 128 min 1 max 2048");
+        SendOutput("option name Threads type spin default 1 min 1 max 1");
+        SendOutput("option name Ponder type check default false");
         
-        Console.WriteLine("uciok");
+        SendOutput("uciok");
     }
     
     private void HandleIsReady()
     {
-        Console.WriteLine("readyok");
+        SendOutput("readyok");
     }
     
     private void HandleNewGame()
     {
-        _engine.NewGame();
-        _search.ClearTT();
+        _logger.LogInfo("New game command received");
+        engine.NewGame();
+        search.ClearTT();
+        _logger.LogInfo("New game initialized");
     }
     
     private void HandlePosition(string[] tokens)
     {
+        _logger.LogInfo($"HandlePosition called with {tokens.Length} tokens");
+        
         if (tokens.Length < 2)
+        {
+            _logger.LogError("Position command too short");
             return;
+        }
             
         int moveIndex = 2;
         
         if (tokens[1] == "startpos")
         {
-            _engine.SetPosition("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+            _logger.LogInfo("Setting startpos");
+            engine.SetPosition("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         }
         else if (tokens[1] == "fen" && tokens.Length >= 8)
         {
             // Reconstruct FEN string
             string fen = string.Join(" ", tokens[2], tokens[3], tokens[4], tokens[5], tokens[6], tokens[7]);
-            _engine.SetPosition(fen);
+            _logger.LogInfo($"Setting FEN: {fen}");
+            engine.SetPosition(fen);
             moveIndex = 8;
         }
         else
         {
+            _logger.LogError($"Invalid position command: {string.Join(" ", tokens)}");
             return; // Invalid position command
         }
         
         // Apply moves if any
         if (moveIndex < tokens.Length && tokens[moveIndex] == "moves")
         {
+            _logger.LogInfo($"Applying {tokens.Length - moveIndex - 1} moves");
             for (int i = moveIndex + 1; i < tokens.Length; i++)
             {
+                _logger.LogInfo($"Parsing move: {tokens[i]}");
                 if (!TryParseMove(tokens[i], out Move move))
+                {
+                    _logger.LogError($"Failed to parse move: {tokens[i]}");
                     break;
+                }
                     
-                _engine.MakeMove(move);
+                _logger.LogInfo($"Making move: {move}");
+                engine.MakeMove(move);
             }
         }
+        
+        _logger.LogInfo("Position command completed");
     }
     
     private void HandleGo(string[] tokens)
     {
+        _logger.LogInfo($"HandleGo called with {tokens.Length} tokens: {string.Join(" ", tokens)}");
+        
         // Cancel any ongoing search
         _searchCancellation?.Cancel();
         _searchCancellation = new CancellationTokenSource();
@@ -210,16 +266,20 @@ public sealed class UciProtocol : IProtocol
         
         // Calculate time for this move
         long timeMs = CalculateThinkTime(wtime, btime, winc, binc, movetime, infinite);
+        _logger.LogInfo($"Calculated think time: {timeMs}ms (wtime={wtime}, btime={btime}, winc={winc}, binc={binc}, movetime={movetime}, infinite={infinite}, depth={depth})");
         
         // Start search in background
         var token = _searchCancellation.Token;
+        _logger.LogInfo("Starting search task");
         Task.Run(() => DoSearch(depth, timeMs, token), token);
     }
     
     private void HandleStop()
     {
+        _logger.LogInfo("Stop command received");
         _searchCancellation?.Cancel();
-        _search.Stop();
+        search.Stop();
+        _logger.LogInfo("Search stopped");
     }
     
     private void HandleQuit()
@@ -254,27 +314,47 @@ public sealed class UciProtocol : IProtocol
     
     private void DoSearch(int depth, long timeMs, CancellationToken cancellation)
     {
+        _logger.LogSearch($"DoSearch started - depth={depth}, timeMs={timeMs}");
+        
         try
         {
-            var board = _engine.GetBoard();
+            var board = engine.GetBoard();
+            _logger.LogSearch($"Got board state - SideToMove={board.SideToMove}");
             
             // Register cancellation with search
             if (cancellation.CanBeCanceled)
             {
-                cancellation.Register(() => _search.Stop());
+                cancellation.Register(() => {
+                    _logger.LogSearch("Search cancellation requested");
+                    search.Stop();
+                });
             }
             
-            var bestMove = _search.FindBestMove(ref board, depth, timeMs);
+            _logger.LogSearch("Calling FindBestMove");
+            var bestMove = search.FindBestMove(ref board, depth, timeMs);
+            _logger.LogSearch($"FindBestMove returned: {bestMove} (Data={bestMove.Data})");
             
-            if (!cancellation.IsCancellationRequested && bestMove.Data != 0)
+            // Always send bestmove if we have one, even if search was stopped
+            if (bestMove.Data != 0)
             {
-                Console.WriteLine($"bestmove {bestMove}");
+                SendOutput($"bestmove {bestMove}");
+            }
+            else
+            {
+                _logger.LogSearch($"No valid move found - moveData={bestMove.Data}");
             }
         }
         catch (OperationCanceledException)
         {
+            _logger.LogSearch("Search cancelled via OperationCanceledException");
             // Search was cancelled - normal operation
         }
+        catch (Exception ex)
+        {
+            _logger.LogError($"Error in DoSearch: {ex}");
+        }
+        
+        _logger.LogSearch("DoSearch completed");
     }
     
     private long CalculateThinkTime(long wtime, long btime, long winc, long binc, long movetime, bool infinite)
@@ -286,7 +366,7 @@ public sealed class UciProtocol : IProtocol
             return movetime;
             
         // Simple time management
-        var board = _engine.GetBoard();
+        var board = engine.GetBoard();
         long myTime = board.SideToMove == Color.White ? wtime : btime;
         long myInc = board.SideToMove == Color.White ? winc : binc;
         
@@ -338,7 +418,7 @@ public sealed class UciProtocol : IProtocol
         }
         
         // Find the matching legal move
-        var board = _engine.GetBoard();
+        var board = engine.GetBoard();
         MoveList moves = new();
         MoveGenerator.GenerateAllMoves(ref board, ref moves);
         
@@ -355,11 +435,13 @@ public sealed class UciProtocol : IProtocol
                 BoardState testBoard = board;
                 testBoard.MakeMove(candidate);
                 
-                ulong king = testBoard.SideToMove == Color.White ? board.WhiteKing : board.BlackKing;
+                // Check if our king is in check after the move (using original side to move)
+                ulong king = board.SideToMove == Color.White ? testBoard.WhiteKing : testBoard.BlackKing;
                 if (king != 0)
                 {
                     Square kingSquare = (Square)Bitboard.BitScanForward(king);
-                    if (!Attacks.IsSquareAttacked(ref testBoard, kingSquare, testBoard.SideToMove))
+                    Color enemyColor = board.SideToMove == Color.White ? Color.Black : Color.White;
+                    if (!Attacks.IsSquareAttacked(ref testBoard, kingSquare, enemyColor))
                     {
                         move = candidate;
                         return true;

@@ -10,31 +10,85 @@ internal class Program
    [ModuleInitializer]
    public static void Initialize()
    {
-      Console.Title = nameof(Meridian);
+      // Don't set console title - it can cause issues with GUI integration
+      // Console.Title = nameof(Meridian);
    }
 
    public static void Main(string[] args)
    {
+      // Special case for perft testing
       if (args.Length > 0 && args[0] == "perft")
       {
          Perft.RunPerftSuite();
          return;
       }
       
-      // Check if we should run in UCI mode
-      bool uciMode = args.Length > 0 && args[0].ToLowerInvariant() == "uci";
-      
       var engine = new Engine();
       var search = new Search();
       
-      if (uciMode)
+      // Check for debug mode
+      bool debugMode = args.Any(arg => arg.Equals("--debug", StringComparison.OrdinalIgnoreCase));
+      
+      // If explicitly started with 'uci' argument, go straight to UCI mode
+      if (args.Length > 0 && args[0].ToLowerInvariant() == "uci")
       {
-         // Run in UCI protocol mode
-         var protocol = ProtocolFactory.Create("uci", engine, search);
+         var protocol = debugMode 
+            ? new UciDebugProtocol(engine, search) 
+            : (IProtocol)new UciProtocol(engine, search);
          protocol.Run();
          return;
       }
+      
+      // For GUI compatibility: when started with no arguments (or only --debug), don't print anything
+      // Just wait for input and check if it's UCI
+      if (args.Length == 0 || (args.Length == 1 && debugMode))
+      {
+         try
+         {
+            var firstInput = Console.ReadLine();
+            if (firstInput == null) // EOF
+               return;
+               
+            var trimmed = firstInput.Trim();
+            if (trimmed.Equals("uci", StringComparison.OrdinalIgnoreCase) || 
+                trimmed.Equals("UCI", StringComparison.Ordinal))
+            {
+               // Start UCI protocol and send initial response since we consumed the "uci" command
+               var protocol = debugMode 
+                  ? new UciDebugProtocol(engine, search) 
+                  : (IProtocol)new UciProtocol(engine, search);
+               protocol.Run(sendInitialUciResponse: true);
+               return;
+            }
+            
+            // Not UCI - continue in console mode
+            ShowConsoleInterface(engine);
+            
+            // Process the first input if it wasn't UCI
+            if (!string.IsNullOrWhiteSpace(firstInput))
+            {
+               if (!ProcessConsoleCommand(firstInput, engine, search))
+                  return;
+            }
+         }
+         catch
+         {
+            // If we can't read input, just exit silently
+            return;
+         }
+      }
+      else
+      {
+         // Console mode
+         ShowConsoleInterface(engine);
+      }
 
+      // Console loop
+      RunConsoleLoop(engine, search);
+   }
+   
+   private static void ShowConsoleInterface(Engine engine)
+   {
       Console.WriteLine("Meridian Chess Engine");
       Console.WriteLine("====================");
       Console.WriteLine("Commands:");
@@ -47,12 +101,13 @@ internal class Program
       Console.WriteLine("  uci     - Switch to UCI protocol mode");
       Console.WriteLine("  quit    - Exit");
       Console.WriteLine();
-      Console.WriteLine("To start in UCI mode: Meridian.exe uci");
-      Console.WriteLine();
-
+      
       engine.NewGame();
       engine.PrintBoard();
-
+   }
+   
+   private static void RunConsoleLoop(Engine engine, Search search)
+   {
       while (true)
       {
          Console.Write("> ");
@@ -60,9 +115,16 @@ internal class Program
          
          if (string.IsNullOrWhiteSpace(input))
             continue;
-
-         string[] parts = input.Trim().Split(' ');
-         string command = parts[0].ToLower();
+            
+         if (!ProcessConsoleCommand(input, engine, search))
+            break;
+      }
+   }
+   
+   private static bool ProcessConsoleCommand(string input, Engine engine, Search search)
+   {
+      string[] parts = input.Trim().Split(' ');
+      string command = parts[0].ToLower();
 
          switch (command)
          {
@@ -70,7 +132,7 @@ internal class Program
                engine.NewGame();
                engine.PrintBoard();
                break;
-
+ 
             case "move":
                if (parts.Length < 2)
                {
@@ -131,17 +193,18 @@ internal class Program
             case "uci":
                Console.WriteLine("Switching to UCI protocol mode...");
                var protocol = ProtocolFactory.Create("uci", engine, search);
-               protocol.Run();
-               return;
+               protocol?.Run();
+               return false;
 
             case "quit":
             case "exit":
-               return;
+               return false;
 
             default:
                Console.WriteLine("Unknown command. Type 'help' for commands.");
                break;
          }
-      }
+         
+         return true; // Continue processing
    }
 }
