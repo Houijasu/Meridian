@@ -23,9 +23,13 @@ public sealed class Search
     private long _timeLimit;
     private bool _shouldStop;
     
+    // Transposition table
+    private readonly TranspositionTable _tt;
+    
     public Search()
     {
         _stopwatch = new System.Diagnostics.Stopwatch();
+        _tt = new TranspositionTable(128); // 128 MB default
     }
     
     public Move FindBestMove(ref BoardState board, int depthLimit, long timeLimitMs = long.MaxValue)
@@ -42,7 +46,7 @@ public sealed class Search
         // Iterative deepening
         for (int depth = 1; depth <= depthLimit && !_shouldStop; depth++)
         {
-            int score = AlphaBeta(ref board, depth, -Infinity, Infinity, true);
+            int score = AlphaBeta(ref board, depth, -Infinity, Infinity, true, 0);
             
             if (!_shouldStop)
             {
@@ -53,7 +57,8 @@ public sealed class Search
                 if (timeMs > 0)
                 {
                     ulong nps = (NodesSearched * 1000) / (ulong)timeMs;
-                    Console.WriteLine($"info depth {depth} score cp {score} nodes {NodesSearched} nps {nps} time {timeMs} pv {BestMove}");
+                    Console.WriteLine($"info depth {depth} score cp {score} nodes {NodesSearched} nps {nps} time {timeMs} " +
+                                    $"hashfull {(int)(_tt.FillRate() * 10)} hits {_tt.Hits} pv {BestMove}");
                 }
             }
             
@@ -65,7 +70,7 @@ public sealed class Search
         return BestMove;
     }
     
-    private int AlphaBeta(ref BoardState board, int depth, int alpha, int beta, bool isRoot)
+    private int AlphaBeta(ref BoardState board, int depth, int alpha, int beta, bool isRoot, int ply = 0)
     {
         if (_shouldStop || _stopwatch.ElapsedMilliseconds > _timeLimit)
         {
@@ -79,6 +84,34 @@ public sealed class Search
         if (!isRoot && (board.HalfMoveClock >= 100 || IsRepetition(ref board)))
             return DrawScore;
         
+        // Compute hash for this position
+        ulong hash = Zobrist.ComputeHash(ref board);
+        int originalAlpha = alpha;
+        
+        // Probe transposition table
+        Move ttMove = default;
+        if (!isRoot && _tt.Probe(hash, depth, alpha, beta, out TTEntry ttEntry))
+        {
+            ttMove = ttEntry.Move;
+            
+            // Use TT score if applicable
+            if (ttEntry.Flags == (byte)TTFlags.Exact)
+            {
+                return ttEntry.Score;
+            }
+            else if (ttEntry.Flags == (byte)TTFlags.LowerBound)
+            {
+                alpha = Math.Max(alpha, ttEntry.Score);
+            }
+            else if (ttEntry.Flags == (byte)TTFlags.UpperBound)
+            {
+                beta = Math.Min(beta, ttEntry.Score);
+            }
+            
+            if (alpha >= beta)
+                return ttEntry.Score;
+        }
+        
         // Leaf node - return evaluation
         if (depth == 0)
             return Quiescence(ref board, alpha, beta);
@@ -86,6 +119,7 @@ public sealed class Search
         // Generate all legal moves
         MoveList moves = new();
         MoveGenerator.GenerateAllMoves(ref board, ref moves);
+        
         
         // Filter out illegal moves and count legal ones
         int legalMoves = 0;
@@ -106,7 +140,7 @@ public sealed class Search
             legalMoves++;
             
             // Recursive search
-            int score = -AlphaBeta(ref board, depth - 1, -beta, -alpha, false);
+            int score = -AlphaBeta(ref board, depth - 1, -beta, -alpha, false, ply + 1);
             
             board = copy;
             
@@ -138,6 +172,19 @@ public sealed class Search
             else
                 return DrawScore; // Stalemate
         }
+        
+        // Store in transposition table
+        TTFlags flags = TTFlags.UpperBound;
+        if (alpha >= beta)
+        {
+            flags = TTFlags.LowerBound;
+        }
+        else if (alpha > originalAlpha)
+        {
+            flags = TTFlags.Exact;
+        }
+        
+        _tt.Store(hash, bestMoveInPosition, alpha, depth, flags);
         
         return alpha;
     }
@@ -205,8 +252,14 @@ public sealed class Search
         return false;
     }
     
+    
     public void Stop()
     {
         _shouldStop = true;
+    }
+    
+    public void ClearTT()
+    {
+        _tt.Clear();
     }
 }

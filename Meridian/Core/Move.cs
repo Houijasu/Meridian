@@ -20,6 +20,18 @@ public readonly struct Move
         _data = (uint)from | ((uint)to << 6) | ((uint)type << 12) | ((uint)promotionPiece << 14);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Move(uint data)
+    {
+        _data = data;
+    }
+
+    public uint Data
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _data;
+    }
+
     public Square From
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
