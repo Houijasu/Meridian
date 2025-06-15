@@ -26,6 +26,7 @@ public ref struct BoardState
     public byte HalfMoveClock;
     public ushort FullMoveNumber;
     public ulong Hash;
+    public int CachedMaterial; // Cached material value for NNUE
     
     public ulong WhitePieces
     {
@@ -92,6 +93,31 @@ public ref struct BoardState
         }
     }
 
+    /// <summary>
+    /// Calculate material value (for NNUE output bucket selection)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int CalculateMaterial()
+    {
+        // PlentyChess material values
+        const int PawnValue = 94;
+        const int KnightValue = 281;
+        const int BishopValue = 297;
+        const int RookValue = 512;
+        const int QueenValue = 936;
+        
+        int material = 0;
+        
+        // Count pieces
+        material += Bitboard.PopCount(WhitePawns | BlackPawns) * PawnValue;
+        material += Bitboard.PopCount(WhiteKnights | BlackKnights) * KnightValue;
+        material += Bitboard.PopCount(WhiteBishops | BlackBishops) * BishopValue;
+        material += Bitboard.PopCount(WhiteRooks | BlackRooks) * RookValue;
+        material += Bitboard.PopCount(WhiteQueens | BlackQueens) * QueenValue;
+        
+        return material;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public readonly (Piece piece, Color color) GetPieceAt(Square square)
     {
@@ -140,7 +166,7 @@ public ref struct BoardState
 
     public static BoardState StartingPosition()
     {
-        return new BoardState
+        var board = new BoardState
         {
             WhitePawns = 0x000000000000FF00UL,
             WhiteKnights = 0x0000000000000042UL,
@@ -161,8 +187,14 @@ public ref struct BoardState
             EnPassantSquare = Square.None,
             HalfMoveClock = 0,
             FullMoveNumber = 1,
-            Hash = 0
+            Hash = 0,
+            CachedMaterial = 0
         };
+        
+        // Calculate initial material
+        board.CachedMaterial = board.CalculateMaterial();
+        
+        return board;
     }
 }
 

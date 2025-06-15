@@ -1,6 +1,7 @@
 namespace Meridian.Core;
 
 using System.Runtime.CompilerServices;
+using NNUE;
 
 public sealed class Search
 {
@@ -33,10 +34,20 @@ public sealed class Search
     private readonly Move[,] _pvTable = new Move[MaxDepth, MaxDepth];
     private readonly int[] _pvLength = new int[MaxDepth];
     
+    // NNUE evaluator
+    private readonly NNUEEvaluator _nnue;
+    
     public Search()
     {
         _tt = new TranspositionTable(); // 128 MB default
         _moveOrdering = new MoveOrderingSimple();
+        _nnue = new NNUEEvaluator();
+        
+        // Initialize NNUE
+        if (!_nnue.Initialize())
+        {
+            Console.WriteLine("Warning: NNUE initialization failed, using classical evaluation");
+        }
     }
     
     public Move FindBestMove(ref BoardState board, int depthLimit, long timeLimitMs = long.MaxValue)
@@ -55,6 +66,9 @@ public sealed class Search
         
         // Clear PV
         Array.Clear(_pvLength, 0, _pvLength.Length);
+        
+        // Initialize NNUE for this position
+        _nnue.SetPosition(ref board);
         
         _stopwatch.Restart();
         
@@ -131,7 +145,7 @@ public sealed class Search
         
         // Prevent stack overflow
         if (ply >= MaxDepth - 1)
-            return Evaluation.Evaluate(ref board);
+            return _nnue.Evaluate(ref board);
             
         if (_shouldStop || _stopwatch.ElapsedMilliseconds > _timeLimit)
         {
@@ -200,9 +214,15 @@ public sealed class Search
             if (board.EnPassantSquare != Square.None)
                 nullBoard.Hash = Zobrist.ToggleEnPassant(nullBoard.Hash, board.EnPassantSquare, Square.None);
             
+            // Make null move in NNUE (just pushes state, no expensive update)
+            _nnue.MakeNullMove();
+            
             // Search with reduced depth (R=2 or R=3)
             int R = depth >= 6 ? 3 : 2;
             int nullScore = -AlphaBeta(ref nullBoard, depth - R - 1, -beta, -beta + 1, false, ply + 1);
+            
+            // Unmake null move
+            _nnue.UnmakeMove();
             
             // If null move fails high, we can prune
             if (nullScore >= beta)
@@ -236,12 +256,16 @@ public sealed class Search
         for (int i = 0; i < moves.Count; i++)
         {
             BoardState copy = board;
+            
+            // Update NNUE before making move (needs current board state to calculate changes)
+            _nnue.MakeMove(ref board, moveSpan[i]);
             board.MakeMove(moveSpan[i]);
             
             // Skip if move leaves king in check
             if (IsKingInCheck(ref board, board.SideToMove.Opposite()))
             {
                 board = copy;
+                _nnue.UnmakeMove();
                 continue;
             }
             
@@ -288,6 +312,7 @@ public sealed class Search
             }
             
             board = copy;
+            _nnue.UnmakeMove();
             
             if (_shouldStop)
                 return 0;
@@ -355,7 +380,7 @@ public sealed class Search
         NodesSearched++;
         
         // Stand pat score
-        int standPat = Evaluation.Evaluate(ref board);
+        int standPat = _nnue.Evaluate(ref board);
         
         if (standPat >= beta)
             return beta;
@@ -396,18 +421,23 @@ public sealed class Search
                 continue;
                 
             BoardState copy = board;
+            
+            // Update NNUE before making move (needs current board state to calculate changes)
+            _nnue.MakeMove(ref board, moveSpan[i]);
             board.MakeMove(moveSpan[i]);
             
             // Skip if move leaves king in check
             if (IsKingInCheck(ref board, board.SideToMove.Opposite()))
             {
                 board = copy;
+                _nnue.UnmakeMove();
                 continue;
             }
             
             int score = -Quiescence(ref board, -beta, -alpha);
             
             board = copy;
+            _nnue.UnmakeMove();
             
             if (score >= beta)
                 return beta;

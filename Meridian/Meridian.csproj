@@ -13,4 +13,8 @@
       <PackageReference Include="ZLogger" Version="2.5.10" />
     </ItemGroup>
 
+    <ItemGroup>
+      <EmbeddedResource Include="Resources\main.bin" />
+    </ItemGroup>
+
 </Project>

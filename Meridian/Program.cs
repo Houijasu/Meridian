@@ -1,18 +1,10 @@
 ﻿namespace Meridian;
 
-using System.Runtime.CompilerServices;
-
 using Core;
 using Protocols;
 
 internal class Program
 {
-   [ModuleInitializer]
-   public static void Initialize()
-   {
-      // Don't set console title - it can cause issues with GUI integration
-      // Console.Title = nameof(Meridian);
-   }
 
    public static void Main(string[] args)
    {

@@ -113,6 +113,9 @@ public static class FenParser
             index++;
         }
         
+        // Calculate and cache material
+        board.CachedMaterial = board.CalculateMaterial();
+        
         return board;
     }
 

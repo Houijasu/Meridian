@@ -2,7 +2,7 @@ namespace Meridian.Core;
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Meridian.Common;
+using Common;
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct Move
