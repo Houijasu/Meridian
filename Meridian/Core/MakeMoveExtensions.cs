@@ -21,8 +21,8 @@ public static class MakeMoveExtensions
         else
             board.HalfMoveClock++;
         
-        // Recalculate material if this is a capture
-        if (move.IsCapture())
+        // Recalculate material for captures or promotions
+        if (move.IsCapture() || move.IsPromotion())
         {
             board.CachedMaterial = board.CalculateMaterial();
         }

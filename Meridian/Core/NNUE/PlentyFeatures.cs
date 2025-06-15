@@ -96,9 +96,20 @@ public static class PlentyFeatures
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int GetRelativeSquare(int square, Square kingSquare, int kingBucket)
     {
-        // For HalfKA, squares are relative to king position
-        // This is simplified - PlentyChess may have more complex transformations
-        return square;
+        // Translate the board so the king is near the centre (e4).
+        // This is a simple approximation of the HalfKA mapping.
+        int kFile = (int)kingSquare & 7;
+        int kRank = (int)kingSquare >> 3;
+        int file = square & 7;
+        int rank = square >> 3;
+
+        int relFile = file - kFile + 4;
+        int relRank = rank - kRank + 4;
+
+        relFile = relFile < 0 ? 0 : (relFile > 7 ? 7 : relFile);
+        relRank = relRank < 0 ? 0 : (relRank > 7 ? 7 : relRank);
+
+        return relRank * 8 + relFile;
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
