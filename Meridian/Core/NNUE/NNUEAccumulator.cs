@@ -83,37 +83,58 @@ public unsafe struct NNUEAccumulator
     /// </summary>
     public void UpdateAccumulator(ref NNUENetwork network, ref BoardState board, Move move)
     {
+        Piece movingPiece = board.GetPieceType(move.From);
+        Color movingColor = board.GetPieceColor(move.From);
+
+        int wKingSquare = Bitboard.BitScanForward(board.WhiteKing);
+        int bKingSquare = Bitboard.BitScanForward(board.BlackKing);
+
+        if (movingPiece == Piece.King)
+        {
+            if (movingColor == Color.White)
+                wKingSquare = (int)move.To;
+            else
+                bKingSquare = (int)move.To;
+
+            // Recompute from scratch when king moves
+            BoardState temp = board;
+            temp.MakeMove(move);
+
+            const int maxFeatures = NNUEFeatures.MaxActivePieces;
+            Span<int> feats = stackalloc int[maxFeatures * 2];
+            var wf = feats[..maxFeatures];
+            var bf = feats[maxFeatures..];
+            int count = NNUEFeatures.ExtractFeatures(ref temp, wf, bf);
+
+            RefreshAccumulator(ref network, wf[..count], bf[..count], _currentPly, wKingSquare, bKingSquare);
+            return;
+        }
+
         // Allocate all features in one span to avoid CS9080
         Span<int> allFeatures = stackalloc int[16]; // 4 * 4 arrays
         var removedWhite = allFeatures[..4];
         var removedBlack = allFeatures[4..8];
         var addedWhite = allFeatures[8..12];
         var addedBlack = allFeatures[12..16];
-        
+
         NNUEFeatures.GetChangedFeatures(
             ref board, move,
             removedWhite, removedBlack,
             addedWhite, addedBlack,
             out int numRemoved, out int numAdded);
-        
-        // Get king positions for buckets
-        int wKingSquare = Bitboard.BitScanForward(board.WhiteKing);
-        int bKingSquare = Bitboard.BitScanForward(board.BlackKing);
+
         int whiteKingBucket = GetKingBucket(wKingSquare, Color.White);
         int blackKingBucket = GetKingBucket(bKingSquare, Color.Black);
-        
-        // Update both perspectives
+
         fixed (short* whiteAcc = &_whiteAccumulator[_currentPly * NNUENetwork.L1Size])
         fixed (short* blackAcc = &_blackAccumulator[_currentPly * NNUENetwork.L1Size])
         {
-            // Remove old features
             for (int i = 0; i < numRemoved; i++)
             {
                 SubtractFeature(ref network, removedWhite[i], whiteAcc, whiteKingBucket);
                 SubtractFeature(ref network, removedBlack[i], blackAcc, blackKingBucket);
             }
-            
-            // Add new features
+
             for (int i = 0; i < numAdded; i++)
             {
                 AddFeature(ref network, addedWhite[i], whiteAcc, whiteKingBucket);

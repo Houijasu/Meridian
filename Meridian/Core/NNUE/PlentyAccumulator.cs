@@ -93,13 +93,37 @@ public unsafe struct PlentyAccumulator
     /// </summary>
     public void UpdateAccumulator(ref PlentyNetwork network, ref BoardState board, Move move)
     {
-        // Get king positions
+        Piece movingPiece = board.GetPieceType(move.From);
+        Color movingColor = board.GetPieceColor(move.From);
+
         int wKingSquare = Bitboard.BitScanForward(board.WhiteKing);
         int bKingSquare = Bitboard.BitScanForward(board.BlackKing);
+
+        if (movingPiece == Piece.King)
+        {
+            if (movingColor == Color.White)
+                wKingSquare = (int)move.To;
+            else
+                bKingSquare = (int)move.To;
+
+            // Recompute from scratch when king moves
+            BoardState temp = board;
+            temp.MakeMove(move);
+
+            const int maxFeat = PlentyFeatures.MaxActiveFeatures;
+            Span<int> buf = stackalloc int[maxFeat * 2];
+            var wf = buf[..maxFeat];
+            var bf = buf[maxFeat..];
+            int cnt = PlentyFeatures.ExtractFeatures(ref temp, wf, bf);
+
+            Material = temp.CachedMaterial != 0 ? temp.CachedMaterial : temp.CalculateMaterial();
+            RefreshAccumulator(ref network, wf[..cnt], bf[..cnt], _currentPly, wKingSquare, bKingSquare);
+            return;
+        }
+
         Square whiteKing = (Square)wKingSquare;
         Square blackKing = (Square)bKingSquare;
-        
-        // Get king buckets
+
         int whiteKingBucket = PlentyNetwork.GetKingBucket(wKingSquare, Color.White);
         int blackKingBucket = PlentyNetwork.GetKingBucket(bKingSquare, Color.Black);
         
