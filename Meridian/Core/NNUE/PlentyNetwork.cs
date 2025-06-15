@@ -328,8 +328,10 @@ public unsafe struct PlentyNetwork
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int GetOutputBucket(int material)
     {
-        // Simplified output bucket based on material count
-        // In real implementation, this would consider piece types and positions
-        return 0; // Using bucket 0 for now
+        // Map total material value to one of the available buckets
+        int bucket = material / 1000;
+        if (bucket >= OutputBuckets)
+            bucket = OutputBuckets - 1;
+        return bucket;
     }
 }

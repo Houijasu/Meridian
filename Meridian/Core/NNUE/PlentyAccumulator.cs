@@ -22,9 +22,12 @@ public unsafe struct PlentyAccumulator
     
     // Track which ply we're at
     private int _currentPly;
-    
+
     // Material count for output bucket selection
     public int Material { get; private set; }
+
+    // Material stack to restore after unmaking moves
+    private fixed int _materialStack[MaxDepth];
     
     /// <summary>
     /// Initialize accumulator with starting position
@@ -56,6 +59,8 @@ public unsafe struct PlentyAccumulator
         var whiteSlice = whiteFeatures[..numFeatures];
         var blackSlice = blackFeatures[..numFeatures];
         RefreshAccumulator(ref network, whiteSlice, blackSlice, 0, wKingSquare, bKingSquare);
+
+        _materialStack[0] = Material;
     }
     
     /// <summary>
@@ -75,7 +80,8 @@ public unsafe struct PlentyAccumulator
             CopyAccumulator(srcWhite, dstWhite, PlentyNetwork.L1Size);
             CopyAccumulator(srcBlack, dstBlack, PlentyNetwork.L1Size);
         }
-        
+
+        _materialStack[_currentPly + 1] = _materialStack[_currentPly];
         _currentPly++;
     }
     
@@ -85,7 +91,11 @@ public unsafe struct PlentyAccumulator
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Pop()
     {
-        if (_currentPly > 0) _currentPly--;
+        if (_currentPly > 0)
+        {
+            _currentPly--;
+            Material = _materialStack[_currentPly];
+        }
     }
     
     /// <summary>
@@ -116,13 +126,12 @@ public unsafe struct PlentyAccumulator
             addedWhite, addedBlack,
             out int numRemoved, out int numAdded);
         
-        // Update material if capturing
-        if (move.IsCapture())
-        {
-            // Recalculate and cache material after capture
-            board.CachedMaterial = board.CalculateMaterial();
-            Material = board.CachedMaterial;
-        }
+        // Compute new material after this move
+        BoardState tmp = board;
+        tmp.MakeMove(move);
+        int newMaterial = tmp.CalculateMaterial();
+        _materialStack[_currentPly] = newMaterial;
+        Material = newMaterial;
         
         // Update both perspectives
         fixed (short* whiteAcc = &_whiteAccumulator[_currentPly * PlentyNetwork.L1Size])
@@ -194,6 +203,8 @@ public unsafe struct PlentyAccumulator
             }
             
         }
+
+        _materialStack[ply] = Material;
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
