@@ -379,4 +379,6 @@ public sealed class Position
         Piece.BlackKing => 'k',
         _ => ' '
     };
+
+
 }
