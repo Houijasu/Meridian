@@ -1,0 +1,46 @@
+root = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Code style rules
+dotnet_sort_system_directives_first = true
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+
+# Naming conventions
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = warning
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case_underscore_style
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case_underscore_style.required_prefix = _
+dotnet_naming_style.camel_case_underscore_style.capitalization = camel_case
+
+# Performance-focused suppressions for chess engine
+# CA2225: Operator overloads have named alternates - Not needed for performance-critical structs
+dotnet_diagnostic.CA2225.severity = none
+
+# CA1062: Validate arguments of public methods - Consider suppressing for internal hot paths
+dotnet_diagnostic.CA1062.severity = warning
+
+# CA1814: Prefer jagged arrays over multidimensional - Multidimensional better for fixed-size lookup tables
+dotnet_diagnostic.CA1814.severity = none
+
+# CA1810: Initialize static fields inline - Static constructor needed for complex initialization
+dotnet_diagnostic.CA1810.severity = none
+
+# CA5394: Do not use insecure randomness - Zobrist keys don't need cryptographic randomness
+dotnet_diagnostic.CA5394.severity = none
+
+# CA1303: Do not pass literals as localized parameters - UCI protocol requires exact strings
+dotnet_diagnostic.CA1303.severity = none
