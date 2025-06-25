@@ -12,6 +12,9 @@ public readonly struct Bitboard : IEquatable<Bitboard>
 
     public static readonly Bitboard Empty = new(0);
     public static readonly Bitboard Full = new(0xFFFFFFFFFFFFFFFF);
+    
+    public static readonly Bitboard LightSquares = new(0x55AA55AA55AA55AA);
+    public static readonly Bitboard DarkSquares = new(0xAA55AA55AA55AA55);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Bitboard(ulong value) => _value = value;
@@ -49,7 +52,7 @@ public readonly struct Bitboard : IEquatable<Bitboard>
     public static implicit operator Bitboard(ulong value) => new(value);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public int PopCount() => BitOperations.PopCount(_value);
+    public static int PopCount(Bitboard bitboard) => BitOperations.PopCount(bitboard._value);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int TrailingZeroCount() => BitOperations.TrailingZeroCount(_value);

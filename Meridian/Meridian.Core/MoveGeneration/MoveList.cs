@@ -30,6 +30,13 @@ public ref struct MoveList
             return _moves[index];
         }
     }
+    
+    public void Set(int index, Move move)
+    {
+        if ((uint)index >= (uint)_count)
+            ThrowIndexOutOfRange();
+        _moves[index] = move;
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Add(Move move)

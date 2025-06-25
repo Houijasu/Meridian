@@ -3,7 +3,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
-using CSharpFunctionalExtensions;
 
 namespace Meridian.Core.Board;
 
@@ -220,21 +219,27 @@ public sealed class Position
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
     }
 
-    public static Result<Position> FromFen(string? fen)
+    public static Position FromFen(string? fen)
     {
         if (string.IsNullOrWhiteSpace(fen))
-            return Result.Failure<Position>("FEN string cannot be null or empty");
-        
+        {
+            throw new ArgumentException("FEN string cannot be null or empty.", nameof(fen));
+        }
+
         var position = new Position();
         var parts = fen.Split(' ');
-        
+
         if (parts.Length != 6)
-            return Result.Failure<Position>("Invalid FEN string: expected 6 parts");
-        
+        {
+            throw new ArgumentException("Invalid FEN string: expected 6 parts.", nameof(fen));
+        }
+
         var ranks = parts[0].Split('/');
         if (ranks.Length != 8)
-            return Result.Failure<Position>("Invalid FEN board representation: expected 8 ranks");
-        
+        {
+            throw new ArgumentException("Invalid FEN board representation: expected 8 ranks.", nameof(fen));
+        }
+
         for (var rank = 7; rank >= 0; rank--)
         {
             var file = 0;
@@ -255,9 +260,9 @@ public sealed class Position
                 }
             }
         }
-        
+
         position.SideToMove = parts[1] == "w" ? Color.White : Color.Black;
-        
+
         position.CastlingRights = CastlingRights.None;
         foreach (var c in parts[2])
         {
@@ -270,20 +275,24 @@ public sealed class Position
                 _ => CastlingRights.None
             };
         }
-        
+
         position.EnPassantSquare = parts[3] == "-" ? Square.None : SquareExtensions.ParseSquare(parts[3]);
-        
+
         if (!int.TryParse(parts[4], CultureInfo.InvariantCulture, out var halfmoveClock))
-            return Result.Failure<Position>($"Invalid halfmove clock: {parts[4]}");
+        {
+            throw new ArgumentException($"Invalid halfmove clock: {parts[4]}", nameof(fen));
+        }
         position.HalfmoveClock = halfmoveClock;
-        
+
         if (!int.TryParse(parts[5], CultureInfo.InvariantCulture, out var fullmoveNumber))
-            return Result.Failure<Position>($"Invalid fullmove number: {parts[5]}");
+        {
+            throw new ArgumentException($"Invalid fullmove number: {parts[5]}", nameof(fen));
+        }
         position.FullmoveNumber = fullmoveNumber;
-        
+
         position.ZobristKey = Zobrist.ComputeKey(position);
-        
-        return Result.Success(position);
+
+        return position;
     }
 
     public string ToFen()
@@ -380,5 +389,54 @@ public sealed class Position
         _ => ' '
     };
 
+    public bool IsDraw()
+    {
+        if (HalfmoveClock >= 100)
+        {
+            return true;
+        }
 
+        var pawns = GetBitboard(PieceType.Pawn);
+        var rooks = GetBitboard(PieceType.Rook);
+        var queens = GetBitboard(PieceType.Queen);
+
+        if (pawns != 0 || rooks != 0 || queens != 0)
+        {
+            return false;
+        }
+
+        var whiteKnights = GetBitboard(Color.White, PieceType.Knight);
+        var blackKnights = GetBitboard(Color.Black, PieceType.Knight);
+        var whiteBishops = GetBitboard(Color.White, PieceType.Bishop);
+        var blackBishops = GetBitboard(Color.Black, PieceType.Bishop);
+
+        var whiteMinorPieces = Bitboard.PopCount(whiteKnights) + Bitboard.PopCount(whiteBishops);
+        var blackMinorPieces = Bitboard.PopCount(blackKnights) + Bitboard.PopCount(blackBishops);
+
+        if (whiteMinorPieces <= 1 && blackMinorPieces <= 1)
+        {
+            return true;
+        }
+
+        if (whiteMinorPieces == 0 && blackMinorPieces == 2 && Bitboard.PopCount(blackKnights) <= 1)
+        {
+            return true;
+        }
+
+        if (blackMinorPieces == 0 && whiteMinorPieces == 2 && Bitboard.PopCount(whiteKnights) <= 1)
+        {
+            return true;
+        }
+
+        if (Bitboard.PopCount(whiteKnights) == 0 && Bitboard.PopCount(blackKnights) == 0)
+        {
+            var allBishops = GetBitboard(PieceType.Bishop);
+            if ((allBishops & Bitboard.LightSquares) == 0 || (allBishops & Bitboard.DarkSquares) == 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

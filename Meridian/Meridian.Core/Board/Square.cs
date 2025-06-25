@@ -85,4 +85,5 @@ public static class SquareExtensions
 
         return FromFileRank(file, rank);
     }
+    
 }

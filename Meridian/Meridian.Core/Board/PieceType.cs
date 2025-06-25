@@ -39,8 +39,16 @@ public enum Color
 public static class PieceExtensions
 {
     public static PieceType Type(this Piece piece) => (PieceType)((int)piece & 7);
-    
-    public static Color GetColor(this Piece piece) => piece == Piece.None ? Board.Color.White : (Board.Color)((int)piece >> 3);
-    
+
+    public static Color GetColor(this Piece piece)
+    {
+        if (piece == Piece.None)
+        {
+            return Color.White;
+        }
+
+        return (Color)((int)piece >> 3);
+    }
+
     public static Piece MakePiece(Color color, PieceType type) => (Piece)((int)type | ((int)color << 3));
 }
