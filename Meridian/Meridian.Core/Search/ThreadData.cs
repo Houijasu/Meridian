@@ -38,19 +38,26 @@ public sealed class ThreadData
     
     public void UpdatePrincipalVariation(Move move, int ply)
     {
+        // Get the starting index in the 1D array for the current ply's PV
         var pvIndex = ply * SearchConstants.MaxDepth;
-        PvTable[pvIndex + ply] = move;
-        
-        // Copy the rest of the PV from ply+1
+        // Get the starting index for the child ply's PV
         var nextPvIndex = (ply + 1) * SearchConstants.MaxDepth;
-        for (var i = ply + 1; i < PvLength[ply + 1]; i++)
+        
+        // The first move of the PV for this node is the best move we just found
+        PvTable[pvIndex] = move;
+        
+        // The rest of the PV is the PV from the child node
+        var childPvLength = PvLength[ply + 1];
+        if (childPvLength > 0)
         {
-            PvTable[pvIndex + i] = PvTable[nextPvIndex + i];
+            // Copy the child's PV into the current PV, right after the first move
+            Array.Copy(PvTable, nextPvIndex, PvTable, pvIndex + 1, childPvLength);
         }
         
-        PvLength[ply] = PvLength[ply + 1] + 1;
+        // The length of the current PV is 1 (for our move) + the length of the child's PV
+        PvLength[ply] = childPvLength + 1;
         
-        // Update the root PV for display
+        // Update the user-facing SearchInfo only at the root of the search
         if (ply == 0)
         {
             Info.PrincipalVariation.Clear();
@@ -79,20 +86,6 @@ public sealed class ThreadData
                (move == KillerMoves[ply, 0] || move == KillerMoves[ply, 1]);
     }
     
-    public Move GetPvMove(int ply)
-    {
-        if (ply >= SearchConstants.MaxDepth || ply >= PvLength[0])
-            return Move.None;
-            
-        // For ply 0, the PV starts at index 0
-        // For subsequent plies, we use the PV from the root
-        return PvTable[ply];
-    }
-    
-    public bool IsPvMove(Move move, int ply)
-    {
-        return move == GetPvMove(ply);
-    }
     
     public void UpdateHistoryScore(Move move, int bonus, Color color)
     {

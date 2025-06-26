@@ -293,33 +293,25 @@ public sealed class SearchThread : IDisposable
             // Principal Variation Search (PVS)
             if (movesSearched == 0)
             {
-                // First move is searched with full window
+                // First move is always searched with a full window
                 score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
             }
             else
             {
-                // For non-first moves at PV nodes, use zero window
-                if (isPvNode)
+                // All subsequent moves are searched with a zero-window to test if they are better than the current best
+                score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
+                
+                // If the zero-window search returned a score better than alpha, it means this move
+                // might be the new best move. We must re-search it with a full window to get an accurate score.
+                // This re-search is only necessary at PV nodes.
+                if (score > alpha && score < beta && isPvNode)
                 {
-                    // Search with zero window
-                    score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
-                    
-                    // If it fails high, we need a re-search
-                    if (score > alpha)
-                    {
-                        _threadData.Info.PvsReSearches++;
-                        score = -Search(newPosition, depth - 1, -beta, -alpha, ply + 1);
-                    }
-                    else
-                    {
-                        // Zero window correctly predicted this move isn't best
-                        _threadData.Info.PvsHits++;
-                    }
-                }
-                else
-                {
-                    // Non-PV nodes use regular search
+                    _threadData.Info.PvsReSearches++;
                     score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
+                }
+                else if (score <= alpha)
+                {
+                    _threadData.Info.PvsHits++;
                 }
             }
             
@@ -429,16 +421,13 @@ public sealed class SearchThread : IDisposable
     private void OrderMoves(ref MoveList moves, Position position, Move ttMove, int ply)
     {
         Span<int> scores = stackalloc int[moves.Count];
-        var pvMove = _threadData.GetPvMove(ply);
         
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
             
-            if (move == pvMove)
-                scores[i] = 2_000_000;  // PV move has highest priority
-            else if (move == ttMove)
-                scores[i] = 1_000_000;  // TT move second priority
+            if (move == ttMove)
+                scores[i] = 1_000_000;  // TT move has highest priority
             else if (move.IsCapture)
                 scores[i] = ScoreCapture(move, position) + 100_000;
             else if (_threadData.IsKillerMove(move, ply))
