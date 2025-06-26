@@ -17,12 +17,12 @@ public sealed class Position
     private readonly Bitboard[] _colorBitboards;
     private readonly Piece[] _board;
     
-    public Color SideToMove { get; private set; }
-    public CastlingRights CastlingRights { get; private set; }
-    public Square EnPassantSquare { get; private set; }
-    public int HalfmoveClock { get; private set; }
+    public Color SideToMove { get; internal set; }
+    public CastlingRights CastlingRights { get; internal set; }
+    public Square EnPassantSquare { get; internal set; }
+    public int HalfmoveClock { get; internal set; }
     public int FullmoveNumber { get; private set; }
-    public ulong ZobristKey { get; private set; }
+    public ulong ZobristKey { get; internal set; }
 
     public Position()
     {
@@ -114,8 +114,15 @@ public sealed class Position
         }
     }
 
-    public void MakeMove(Move move)
+    public UndoInfo MakeMove(Move move)
     {
+        // Save state for undo
+        var capturedPiece = GetPiece(move.To);
+        var oldCastlingRights = CastlingRights;
+        var oldEnPassantSquare = EnPassantSquare;
+        var oldHalfmoveClock = HalfmoveClock;
+        var oldZobristKey = ZobristKey;
+        
         var from = move.From;
         var to = move.To;
         var piece = GetPiece(from);
@@ -171,8 +178,6 @@ public sealed class Position
             SetPiece(rookTo, rook);
         }
         
-        var oldCastlingRights = CastlingRights;
-        
         if (pieceType == PieceType.King)
         {
             CastlingRights &= SideToMove == Color.White ? ~CastlingRights.White : ~CastlingRights.Black;
@@ -220,6 +225,92 @@ public sealed class Position
         
         ZobristKey ^= Zobrist.SideKey();
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
+        
+        // Handle special case for en passant captures
+        if (move.IsEnPassant)
+        {
+            capturedPiece = PieceExtensions.MakePiece(SideToMove, PieceType.Pawn); // opponent's pawn
+        }
+        
+        return new UndoInfo(capturedPiece, oldCastlingRights, oldEnPassantSquare, oldHalfmoveClock, oldZobristKey);
+    }
+    
+    public void UnmakeMove(Move move, UndoInfo undoInfo)
+    {
+        // Switch back the side to move
+        SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
+        
+        // Restore the moved piece
+        var from = move.From;
+        var to = move.To;
+        var piece = GetPiece(to);
+        
+        // Handle promotions - restore the original pawn
+        if (move.IsPromotion)
+        {
+            piece = PieceExtensions.MakePiece(SideToMove, PieceType.Pawn);
+        }
+        
+        // Move piece back from 'to' to 'from'
+        RemovePiece(to);
+        SetPiece(from, piece);
+        
+        // Restore captured piece
+        if (move.IsEnPassant)
+        {
+            // For en passant, the captured pawn was on a different square
+            var captureSquare = SideToMove == Color.White ? to - 8 : to + 8;
+            SetPiece((Square)captureSquare, undoInfo.CapturedPiece);
+        }
+        else if (undoInfo.CapturedPiece != Piece.None)
+        {
+            SetPiece(to, undoInfo.CapturedPiece);
+        }
+        
+        // Handle castling - move the rook back
+        if (move.IsCastling)
+        {
+            var rookFrom = Square.None;
+            var rookTo = Square.None;
+            
+            if (to == Square.G1)
+            {
+                rookFrom = Square.F1;
+                rookTo = Square.H1;
+            }
+            else if (to == Square.C1)
+            {
+                rookFrom = Square.D1;
+                rookTo = Square.A1;
+            }
+            else if (to == Square.G8)
+            {
+                rookFrom = Square.F8;
+                rookTo = Square.H8;
+            }
+            else if (to == Square.C8)
+            {
+                rookFrom = Square.D8;
+                rookTo = Square.A8;
+            }
+            
+            if (rookFrom != Square.None)
+            {
+                var rook = GetPiece(rookFrom);
+                RemovePiece(rookFrom);
+                SetPiece(rookTo, rook);
+            }
+        }
+        
+        // Restore game state
+        CastlingRights = undoInfo.CastlingRights;
+        EnPassantSquare = undoInfo.EnPassantSquare;
+        HalfmoveClock = undoInfo.HalfmoveClock;
+        ZobristKey = undoInfo.ZobristKey;
+        
+        // Decrement fullmove number if needed
+        if (SideToMove == Color.Black)
+            FullmoveNumber--;
     }
     
     public void MakeNullMove()

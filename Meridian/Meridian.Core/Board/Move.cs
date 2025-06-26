@@ -66,21 +66,33 @@ public readonly struct Move : IEquatable<Move>
     {
         if (this == None) return "0000";
         
-        var result = From.ToAlgebraic() + To.ToAlgebraic();
-        
-        if (IsPromotion)
+        // Use string.Create to avoid intermediate allocations
+        var length = IsPromotion ? 5 : 4;
+        return string.Create(length, this, (chars, move) =>
         {
-            result += PromotionType switch
+            // From square
+            var from = (int)move.From;
+            chars[0] = (char)('a' + (from & 7));
+            chars[1] = (char)('1' + (from >> 3));
+            
+            // To square
+            var to = (int)move.To;
+            chars[2] = (char)('a' + (to & 7));
+            chars[3] = (char)('1' + (to >> 3));
+            
+            // Promotion piece
+            if (move.IsPromotion)
             {
-                PieceType.Queen => "q",
-                PieceType.Rook => "r",
-                PieceType.Bishop => "b",
-                PieceType.Knight => "n",
-                _ => ""
-            };
-        }
-        
-        return result;
+                chars[4] = move.PromotionType switch
+                {
+                    PieceType.Queen => 'q',
+                    PieceType.Rook => 'r',
+                    PieceType.Bishop => 'b',
+                    PieceType.Knight => 'n',
+                    _ => ' '
+                };
+            }
+        });
     }
 
     public override string ToString() => ToUci();

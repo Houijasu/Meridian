@@ -270,10 +270,22 @@ public sealed class SearchThread : IDisposable
             staticEval >= beta && HasNonPawnMaterial(position, position.SideToMove))
         {
             var reduction = 3 + depth / 4 + Math.Min((staticEval - beta) / 200, 3);
-            var nullPosition = new Position(position);
-            nullPosition.MakeNullMove();
             
-            var nullScore = -Search(nullPosition, depth - reduction - 1, -beta, -beta + 1, ply + 1, false);
+            // Save state before null move
+            var savedEnPassant = position.EnPassantSquare;
+            var savedZobrist = position.ZobristKey;
+            var savedSide = position.SideToMove;
+            var savedHalfMove = position.HalfmoveClock;
+            
+            position.MakeNullMove();
+            
+            var nullScore = -Search(position, depth - reduction - 1, -beta, -beta + 1, ply + 1, false);
+            
+            // Restore state after null move
+            position.SideToMove = savedSide;
+            position.EnPassantSquare = savedEnPassant;
+            position.ZobristKey = savedZobrist;
+            position.HalfmoveClock = savedHalfMove;
             
             if (nullScore >= beta)
             {
@@ -325,16 +337,15 @@ public sealed class SearchThread : IDisposable
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
-            var newPosition = new Position(position);
-            newPosition.MakeMove(move);
+            var undoInfo = position.MakeMove(move);
             
             var score = 0;
             var newDepth = depth - 1;
             
-            var opponentKing = GetKingSquare(newPosition, newPosition.SideToMove);
-            var givesCheck = opponentKing != Square.None && MoveGenerator.IsSquareAttacked(newPosition, 
+            var opponentKing = GetKingSquare(position, position.SideToMove);
+            var givesCheck = opponentKing != Square.None && MoveGenerator.IsSquareAttacked(position, 
                 opponentKing, 
-                newPosition.SideToMove == Color.White ? Color.Black : Color.White);
+                position.SideToMove == Color.White ? Color.Black : Color.White);
             
             // Late move reductions (LMR)
             if (movesSearched >= 4 && depth >= 3 && !inCheck && !givesCheck &&
@@ -352,12 +363,12 @@ public sealed class SearchThread : IDisposable
             if (movesSearched == 0)
             {
                 // First move is always searched with a full window
-                score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
+                score = -Search(position, newDepth, -beta, -alpha, ply + 1);
             }
             else
             {
                 // All subsequent moves are searched with a zero-window to test if they are better than the current best
-                score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
+                score = -Search(position, newDepth, -alpha - 1, -alpha, ply + 1);
                 
                 // If the zero-window search returned a score better than alpha, it means this move
                 // might be the new best move. We must re-search it with a full window to get an accurate score.
@@ -365,7 +376,7 @@ public sealed class SearchThread : IDisposable
                 if (score > alpha && score < beta && isPvNode)
                 {
                     _threadData.Info.PvsReSearches++;
-                    score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
+                    score = -Search(position, newDepth, -beta, -alpha, ply + 1);
                 }
                 else if (score <= alpha)
                 {
@@ -374,6 +385,9 @@ public sealed class SearchThread : IDisposable
             }
             
             movesSearched++;
+            
+            // Unmake the move before any early exit
+            position.UnmakeMove(move, undoInfo);
             
             if (_shouldStop || _threadPool.IsSearchStopped())
                 return 0;
@@ -458,10 +472,11 @@ public sealed class SearchThread : IDisposable
             if (standPat + captureValue + 200 < alpha && move.PromotionType == PieceType.None)
                 continue;
             
-            var newPosition = new Position(position);
-            newPosition.MakeMove(move);
+            var undoInfo = position.MakeMove(move);
             
-            var score = -Quiescence(newPosition, -beta, -alpha, ply + 1);
+            var score = -Quiescence(position, -beta, -alpha, ply + 1);
+            
+            position.UnmakeMove(move, undoInfo);
             
             if (_shouldStop || _threadPool.IsSearchStopped())
                 return 0;
