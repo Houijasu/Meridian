@@ -10,7 +10,7 @@ public sealed class SearchInfo
     public int Score { get; set; }
     public long Nodes { get; set; }
     public int Time { get; set; }
-    public List<Move> PrincipalVariation { get; } = new();
+    public List<Move> PrincipalVariation { get; } = new(); // CA1002: Internal usage, performance critical
     
     public void Clear()
     {

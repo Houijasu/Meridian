@@ -71,7 +71,7 @@ public static class MagicBitboards
             var sq = (Square)square;
             var mask = GenerateBishopMask(sq);
             var magic = BishopMagicNumbers[square];
-            var bits = mask.PopCount();
+            var bits = Bitboard.PopCount(mask);
             var shift = 64 - bits;
             var size = 1 << bits;
             
@@ -99,7 +99,7 @@ public static class MagicBitboards
             var sq = (Square)square;
             var mask = GenerateRookMask(sq);
             var magic = RookMagicNumbers[square];
-            var bits = mask.PopCount();
+            var bits = Bitboard.PopCount(mask);
             var shift = 64 - bits;
             var size = 1 << bits;
             
@@ -239,7 +239,7 @@ public static class MagicBitboards
     private static List<Bitboard> GenerateOccupancies(Bitboard mask)
     {
         var occupancies = new List<Bitboard>();
-        var n = mask.PopCount();
+        var n = Bitboard.PopCount(mask);
         var patterns = 1 << n;
         
         for (var pattern = 0; pattern < patterns; pattern++)

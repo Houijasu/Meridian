@@ -2,15 +2,23 @@
 
 using Meridian.Core.Board;
 using Meridian.Core.Search;
+using Meridian.Core.MoveGeneration;
 
 namespace Meridian.Core.Protocol.UCI;
 
-public sealed class UciEngine
+public sealed class UciEngine : IDisposable
 {
-    private readonly SearchEngine _searchEngine = new();
-    private Position _position = new();
+    private ParallelSearchEngine _searchEngine = new(128, 1);
+    private Position _position = Position.StartingPosition();
     private Thread? _searchThread;
+    private int _hashSize = 128;
+    private int _threadCount = 1;
 
+    public void Dispose()
+    {
+        _searchEngine?.Dispose();
+    }
+    
     public void ProcessCommand(string command)
     {
         if (string.IsNullOrWhiteSpace(command))
@@ -20,7 +28,7 @@ public sealed class UciEngine
         if (parts.Length == 0)
             return;
 
-        var cmd = parts[0].ToLowerInvariant();
+        var cmd = parts[0].ToUpperInvariant();
 
         switch (cmd)
         {
@@ -45,13 +53,16 @@ public sealed class UciEngine
             case "quit":
                 HandleQuit();
                 break;
+            case "setoption":
+                HandleSetOption(parts);
+                break;
             default:
                 UciOutput.Error($"Unknown command: {cmd}");
                 break;
         }
     }
 
-    private void HandleUci()
+    private static void HandleUci()
     {
         Console.WriteLine("id name Meridian");
         Console.WriteLine("id author Meridian Team");
@@ -61,7 +72,7 @@ public sealed class UciEngine
         Console.WriteLine("uciok");
     }
 
-    private void HandleIsReady()
+    private static void HandleIsReady()
     {
         Console.WriteLine("readyok");
     }
@@ -81,15 +92,7 @@ public sealed class UciEngine
 
         if (parts[1] == "startpos")
         {
-            try
-            {
-                _position = Position.FromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-            }
-            catch (ArgumentException ex)
-            {
-                UciOutput.Error($"Failed to set start position: {ex.Message}");
-                return;
-            }
+            _position = Position.StartingPosition();
         }
         else if (parts[1] == "fen")
         {
@@ -100,15 +103,13 @@ public sealed class UciEngine
             }
 
             var fen = string.Join(" ", parts.Skip(2).Take(6));
-            try
+            var positionResult = Position.FromFen(fen);
+            if (positionResult.IsFailure)
             {
-                _position = Position.FromFen(fen);
-            }
-            catch (ArgumentException ex)
-            {
-                UciOutput.Error($"Invalid FEN: {ex.Message}");
+                UciOutput.Error($"Invalid FEN: {positionResult.Error}");
                 return;
             }
+            _position = positionResult.Value;
         }
 
         var movesIndex = Array.IndexOf(parts, "moves");
@@ -145,7 +146,9 @@ public sealed class UciEngine
             if (bestMove != Move.None)
             {
                 var info = _searchEngine.SearchInfo;
-                Console.WriteLine($"info depth {info.Depth} score cp {info.Score} nodes {info.Nodes} nps {info.NodesPerSecond} time {info.Time}");
+                var hashfull = _searchEngine.GetHashfull();
+                var pvString = string.Join(" ", info.PrincipalVariation.Select(m => m.ToUci()));
+                Console.WriteLine($"info depth {info.Depth} score cp {info.Score} nodes {info.Nodes} nps {info.NodesPerSecond} time {info.Time} hashfull {hashfull} pv {pvString}");
                 Console.WriteLine($"bestmove {bestMove.ToUci()}");
             }
             else
@@ -171,6 +174,39 @@ public sealed class UciEngine
         _searchEngine.Stop();
         _searchThread?.Join(100);
         Environment.Exit(0);
+    }
+    
+    private void HandleSetOption(string[] parts)
+    {
+        if (parts.Length < 5 || parts[1] != "name" || parts[3] != "value")
+        {
+            UciOutput.Error("Invalid setoption format");
+            return;
+        }
+        
+        var optionName = parts[2].ToUpperInvariant();
+        var value = parts[4];
+        
+        switch (optionName)
+        {
+            case "HASH":
+                if (int.TryParse(value, out var hashMb) && hashMb >= 1 && hashMb <= 2048)
+                {
+                    _hashSize = hashMb;
+                    _searchEngine.ResizeTranspositionTable(_hashSize);
+                }
+                break;
+            case "THREADS":
+                if (int.TryParse(value, out var threads) && threads >= 1 && threads <= 128)
+                {
+                    _threadCount = threads;
+                    _searchEngine.SetThreadCount(_threadCount);
+                }
+                break;
+            default:
+                UciOutput.Error($"Unknown option: {optionName}");
+                break;
+        }
     }
 
     private static SearchLimits ParseSearchLimits(string[] parts)

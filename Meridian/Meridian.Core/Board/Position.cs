@@ -3,12 +3,15 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
+using CSharpFunctionalExtensions;
 
 namespace Meridian.Core.Board;
 
 public sealed class Position
 {
     public const string StartingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    
+    public static Position StartingPosition() => FromFen(StartingFen).Value;
 
     private readonly Bitboard[] _pieceBitboards;
     private readonly Bitboard[] _colorBitboards;
@@ -218,12 +221,30 @@ public sealed class Position
         ZobristKey ^= Zobrist.SideKey();
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
     }
+    
+    public void MakeNullMove()
+    {
+        if (EnPassantSquare != Square.None)
+        {
+            ZobristKey ^= Zobrist.EnPassantKey(EnPassantSquare);
+            EnPassantSquare = Square.None;
+        }
+        
+        HalfmoveClock++;
+        
+        // Only increment fullmove when Black makes a move
+        if (SideToMove == Color.Black)
+            FullmoveNumber++;
+            
+        ZobristKey ^= Zobrist.SideKey();
+        SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
+    }
 
-    public static Position FromFen(string? fen)
+    public static Result<Position> FromFen(string? fen)
     {
         if (string.IsNullOrWhiteSpace(fen))
         {
-            throw new ArgumentException("FEN string cannot be null or empty.", nameof(fen));
+            return Result.Failure<Position>("FEN string cannot be null or empty.");
         }
 
         var position = new Position();
@@ -231,13 +252,13 @@ public sealed class Position
 
         if (parts.Length != 6)
         {
-            throw new ArgumentException("Invalid FEN string: expected 6 parts.", nameof(fen));
+            return Result.Failure<Position>("Invalid FEN string: expected 6 parts.");
         }
 
         var ranks = parts[0].Split('/');
         if (ranks.Length != 8)
         {
-            throw new ArgumentException("Invalid FEN board representation: expected 8 ranks.", nameof(fen));
+            return Result.Failure<Position>("Invalid FEN board representation: expected 8 ranks.");
         }
 
         for (var rank = 7; rank >= 0; rank--)
@@ -280,19 +301,19 @@ public sealed class Position
 
         if (!int.TryParse(parts[4], CultureInfo.InvariantCulture, out var halfmoveClock))
         {
-            throw new ArgumentException($"Invalid halfmove clock: {parts[4]}", nameof(fen));
+            return Result.Failure<Position>($"Invalid halfmove clock: {parts[4]}");
         }
         position.HalfmoveClock = halfmoveClock;
 
         if (!int.TryParse(parts[5], CultureInfo.InvariantCulture, out var fullmoveNumber))
         {
-            throw new ArgumentException($"Invalid fullmove number: {parts[5]}", nameof(fen));
+            return Result.Failure<Position>($"Invalid fullmove number: {parts[5]}");
         }
         position.FullmoveNumber = fullmoveNumber;
 
         position.ZobristKey = Zobrist.ComputeKey(position);
 
-        return position;
+        return Result.Success(position);
     }
 
     public string ToFen()

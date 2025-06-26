@@ -50,3 +50,6 @@ dotnet_diagnostic.CA1034.severity = none
 
 # CA2201: Do not raise reserved exception types - Needed for ref struct performance
 dotnet_diagnostic.CA2201.severity = none
+
+# CA1002: Do not expose generic lists - SearchInfo.PrincipalVariation is internal
+dotnet_diagnostic.CA1002.severity = none

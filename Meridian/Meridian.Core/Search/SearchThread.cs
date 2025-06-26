@@ -7,97 +7,174 @@ using Meridian.Core.MoveGeneration;
 
 namespace Meridian.Core.Search;
 
-public sealed class SearchEngine
+public sealed class SearchThread : IDisposable
 {
-    private readonly MoveGenerator _moveGenerator = new();
-    private readonly SearchInfo _info = new();
-    private TranspositionTable _transpositionTable;
-    private Position _rootPosition = null!;
-    private volatile bool _shouldStop;
+    private readonly int _threadId;
+    private readonly TranspositionTable _transpositionTable;
+    private readonly ThreadPool _threadPool;
+    private readonly ThreadData _threadData;
+    private readonly MoveGenerator _moveGenerator;
+    private readonly Thread _thread;
+    private readonly ManualResetEventSlim _searchSignal;
+    private readonly ManualResetEventSlim _completeSignal;
+    
+    private Position? _rootPosition;
+    private SearchLimits? _limits;
+    private int _depthOffset;
     private DateTime _startTime;
     private int _allocatedTime;
+    private volatile bool _shouldStop;
+    private volatile bool _shouldExit;
     
-    public SearchInfo SearchInfo => _info;
-    
-    public SearchEngine(int ttSizeMb = 128)
+    public SearchThread(int threadId, TranspositionTable transpositionTable, ThreadPool threadPool)
     {
-        _transpositionTable = new TranspositionTable(ttSizeMb);
+        _threadId = threadId;
+        _transpositionTable = transpositionTable;
+        _threadPool = threadPool;
+        _threadData = new ThreadData(threadId);
+        _moveGenerator = new MoveGenerator();
+        _searchSignal = new ManualResetEventSlim(false);
+        _completeSignal = new ManualResetEventSlim(true);
+        
+        _thread = new Thread(WorkerLoop)
+        {
+            Name = $"SearchThread_{threadId}",
+            IsBackground = true
+        };
+        _thread.Start();
     }
     
-    public Move StartSearch(Position position, SearchLimits limits)
+    public void StartSearch(Position position, SearchLimits limits, int depthOffset = 0)
     {
-        if (position == null || limits == null) return Move.None;
-        
+        if (position == null || limits == null) return;
         _rootPosition = new Position(position);
+        _limits = limits;
+        _depthOffset = depthOffset;
         _shouldStop = false;
         _startTime = DateTime.UtcNow;
         _allocatedTime = CalculateSearchTime(limits, position);
         
-        _info.Clear();
-        _transpositionTable.NewSearch();
+        _threadData.Clear();
         
+        _completeSignal.Reset();
+        _searchSignal.Set();
+    }
+    
+    public void Stop()
+    {
+        _shouldStop = true;
+        _threadData.ShouldStop = true;
+    }
+    
+    public void WaitForSearchComplete()
+    {
+        _completeSignal.Wait();
+    }
+    
+    public void Dispose()
+    {
+        _shouldExit = true;
+        _shouldStop = true;
+        _searchSignal.Set();
+        _thread.Join(5000);
+        _searchSignal.Dispose();
+        _completeSignal.Dispose();
+    }
+    
+    private void WorkerLoop()
+    {
+        while (!_shouldExit)
+        {
+            _searchSignal.Wait();
+            _searchSignal.Reset();
+            
+            if (_shouldExit)
+                break;
+                
+            if (_rootPosition != null && _limits != null)
+            {
+                RunSearch();
+            }
+            
+            _completeSignal.Set();
+        }
+    }
+    
+    private void RunSearch()
+    {
+        var position = _rootPosition!;
+        var limits = _limits!;
         Move bestMove = Move.None;
         var maxDepth = limits.Depth > 0 ? Math.Min(limits.Depth, SearchConstants.MaxDepth) : SearchConstants.MaxDepth;
         
-        var aspirationDelta = 25;
-        var alpha = -SearchConstants.Infinity;
-        var beta = SearchConstants.Infinity;
+        // Apply depth offset for helper threads
+        var startDepth = 1 + _depthOffset;
         
-        for (var depth = 1; depth <= maxDepth && !_shouldStop; depth++)
+        for (var depth = startDepth; depth <= maxDepth && !_shouldStop; depth++)
         {
-            // Aspiration windows
-            if (depth >= 5 && _info.Score != 0)
-            {
-                alpha = _info.Score - aspirationDelta;
-                beta = _info.Score + aspirationDelta;
-            }
+            var score = 0;
             
-            var score = Search(position, depth, alpha, beta, 0);
-            
-            // Re-search if we fall outside aspiration window
-            if (score <= alpha || score >= beta)
+            // Use aspiration windows for main thread
+            if (_threadId == 0 && depth >= 5 && _threadData.Info.Score != 0)
             {
-                aspirationDelta *= 2;
-                alpha = score <= alpha ? -SearchConstants.Infinity : _info.Score - aspirationDelta;
-                beta = score >= beta ? SearchConstants.Infinity : _info.Score + aspirationDelta;
+                var aspirationDelta = 25;
+                var alpha = _threadData.Info.Score - aspirationDelta;
+                var beta = _threadData.Info.Score + aspirationDelta;
+                
                 score = Search(position, depth, alpha, beta, 0);
+                
+                // Re-search if we fall outside aspiration window
+                if (score <= alpha || score >= beta)
+                {
+                    aspirationDelta *= 2;
+                    alpha = score <= alpha ? -SearchConstants.Infinity : _threadData.Info.Score - aspirationDelta;
+                    beta = score >= beta ? SearchConstants.Infinity : _threadData.Info.Score + aspirationDelta;
+                    score = Search(position, depth, alpha, beta, 0);
+                }
+            }
+            else
+            {
+                score = Search(position, depth, -SearchConstants.Infinity, SearchConstants.Infinity, 0);
             }
             
             if (_shouldStop)
                 break;
                 
-            bestMove = _info.PrincipalVariation.Count > 0 ? _info.PrincipalVariation[0] : Move.None;
+            bestMove = _threadData.Info.PrincipalVariation.Count > 0 ? _threadData.Info.PrincipalVariation[0] : Move.None;
             
-            _info.Depth = depth;
-            _info.Score = score;
-            _info.Time = (int)(DateTime.UtcNow - _startTime).TotalMilliseconds;
+            _threadData.Info.Depth = depth;
+            _threadData.Info.Score = score;
+            _threadData.Info.Time = (int)(DateTime.UtcNow - _startTime).TotalMilliseconds;
+            
+            // Update thread pool with best move
+            if (bestMove != Move.None)
+            {
+                _threadPool.UpdateBestMove(bestMove, score, _threadData);
+            }
             
             if (Math.Abs(score) >= SearchConstants.MateScore - SearchConstants.MaxDepth)
             {
                 break;
             }
             
-            if (ShouldStopOnTime())
+            // Only main thread checks time
+            if (_threadId == 0 && ShouldStopOnTime())
+            {
+                _threadPool.StopSearch();
                 break;
+            }
         }
-        
-        return bestMove;
-    }
-    
-    public void Stop()
-    {
-        _shouldStop = true;
     }
     
     private int Search(Position position, int depth, int alpha, int beta, int ply, bool allowNull = true)
     {
-        if (_shouldStop)
+        if (_shouldStop || _threadPool.IsSearchStopped())
             return 0;
             
-        _info.Nodes++;
+        _threadData.Info.Nodes++;
         
         var isPvNode = beta - alpha > 1;
-        _pvLength[ply] = ply;
+        _threadData.PvLength[ply] = ply;
         
         if (ply > 0 && position.IsDraw())
             return 0;
@@ -115,7 +192,7 @@ public sealed class SearchEngine
             return Quiescence(position, alpha, beta, ply);
             
         if (ply >= SearchConstants.MaxDepth)
-            return Evaluate(position);
+            return Evaluator.Evaluate(position);
             
         CheckTimeLimit();
         
@@ -127,7 +204,7 @@ public sealed class SearchEngine
         if (inCheck)
             depth++;
         
-        var staticEval = Evaluate(position);
+        var staticEval = Evaluator.Evaluate(position);
         
         // Null move pruning
         if (allowNull && !inCheck && ply > 0 && depth >= 3 && !isPvNode &&
@@ -141,11 +218,9 @@ public sealed class SearchEngine
             
             if (nullScore >= beta)
             {
-                // Don't trust mate scores from null move search
                 if (Math.Abs(nullScore) >= SearchConstants.MateInMaxPly)
                     return beta;
                     
-                // Verification search for high depths to avoid zugzwang
                 if (depth >= 12)
                 {
                     var verifyScore = Search(position, depth - reduction - 1, beta - 1, beta, ply + 1, false);
@@ -207,8 +282,7 @@ public sealed class SearchEngine
             {
                 var reduction = GetLMRReduction(depth, movesSearched, isPvNode);
                 
-                // Reduce less for moves with good history
-                if (GetHistoryScore(move, position.SideToMove) > 0)
+                if (_threadData.GetHistoryScore(move, position.SideToMove) > 0)
                     reduction = Math.Max(1, reduction - 1);
                     
                 newDepth = Math.Max(1, newDepth - reduction);
@@ -223,7 +297,6 @@ public sealed class SearchEngine
             {
                 score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
                 
-                // Re-search with full window if we improve alpha
                 if (score > alpha && score < beta)
                 {
                     score = -Search(newPosition, depth - 1, -beta, -alpha, ply + 1);
@@ -232,7 +305,7 @@ public sealed class SearchEngine
             
             movesSearched++;
             
-            if (_shouldStop)
+            if (_shouldStop || _threadPool.IsSearchStopped())
                 return 0;
                 
             if (score > bestScore)
@@ -244,12 +317,12 @@ public sealed class SearchEngine
                 {
                     alpha = score;
                     
-                    UpdatePrincipalVariation(move, ply);
+                    _threadData.UpdatePrincipalVariation(move, ply);
                         
                     if (score >= beta)
                     {
                         if (!move.IsCapture)
-                            UpdateKillerMoves(move, ply);
+                            _threadData.UpdateKillerMoves(move, ply);
                         break;
                     }
                 }
@@ -259,15 +332,13 @@ public sealed class SearchEngine
         // Update history for all quiet moves that were searched
         if (bestScore >= beta && !bestMove.IsCapture)
         {
-            // Bonus for the move that caused cutoff
-            UpdateHistoryScore(bestMove, depth * depth, position.SideToMove);
+            _threadData.UpdateHistoryScore(bestMove, depth * depth, position.SideToMove);
             
-            // Penalty for moves that didn't cause cutoff
             for (var i = 0; i < movesSearched - 1; i++)
             {
                 var move = moves[i];
                 if (!move.IsCapture && move != bestMove)
-                    UpdateHistoryScore(move, -depth * depth, position.SideToMove);
+                    _threadData.UpdateHistoryScore(move, -depth * depth, position.SideToMove);
             }
         }
         
@@ -283,15 +354,15 @@ public sealed class SearchEngine
     
     private int Quiescence(Position position, int alpha, int beta, int ply)
     {
-        if (_shouldStop)
+        if (_shouldStop || _threadPool.IsSearchStopped())
             return 0;
             
-        _info.Nodes++;
+        _threadData.Info.Nodes++;
         
         if (ply >= SearchConstants.MaxDepth)
-            return Evaluate(position);
+            return Evaluator.Evaluate(position);
         
-        var standPat = Evaluate(position);
+        var standPat = Evaluator.Evaluate(position);
         
         if (standPat >= beta)
             return beta;
@@ -312,7 +383,7 @@ public sealed class SearchEngine
         {
             var move = captures[i];
             
-            // Delta pruning - skip bad captures
+            // Delta pruning
             var captureValue = GetPieceValue(move.CapturedPiece.Type());
             if (standPat + captureValue + 200 < alpha && move.PromotionType == PieceType.None)
                 continue;
@@ -322,7 +393,7 @@ public sealed class SearchEngine
             
             var score = -Quiescence(newPosition, -beta, -alpha, ply + 1);
             
-            if (_shouldStop)
+            if (_shouldStop || _threadPool.IsSearchStopped())
                 return 0;
                 
             if (score >= beta)
@@ -333,11 +404,6 @@ public sealed class SearchEngine
         }
         
         return alpha;
-    }
-    
-    private static int Evaluate(Position position)
-    {
-        return Evaluator.Evaluate(position);
     }
     
     private void OrderMoves(ref MoveList moves, Position position, Move ttMove, int ply)
@@ -352,10 +418,10 @@ public sealed class SearchEngine
                 scores[i] = 1_000_000;
             else if (move.IsCapture)
                 scores[i] = ScoreCapture(move, position) + 100_000;
-            else if (IsKillerMove(move, ply))
+            else if (_threadData.IsKillerMove(move, ply))
                 scores[i] = 90_000;
             else
-                scores[i] = GetHistoryScore(move, position.SideToMove);
+                scores[i] = _threadData.GetHistoryScore(move, position.SideToMove);
         }
         
         for (var i = 0; i < moves.Count - 1; i++)
@@ -448,53 +514,6 @@ public sealed class SearchEngine
         }
     }
     
-    private readonly Move[,] _pvTable = new Move[SearchConstants.MaxDepth, SearchConstants.MaxDepth];
-    private readonly int[] _pvLength = new int[SearchConstants.MaxDepth];
-    
-    private void UpdatePrincipalVariation(Move move, int ply)
-    {
-        _pvTable[ply, ply] = move;
-        
-        // Copy the rest of the PV from ply+1
-        for (var i = ply + 1; i < _pvLength[ply + 1]; i++)
-        {
-            _pvTable[ply, i] = _pvTable[ply + 1, i];
-        }
-        
-        _pvLength[ply] = _pvLength[ply + 1];
-        
-        // Update the root PV for display
-        if (ply == 0)
-        {
-            _info.PrincipalVariation.Clear();
-            for (var i = 0; i < _pvLength[0]; i++)
-            {
-                _info.PrincipalVariation.Add(_pvTable[0, i]);
-            }
-        }
-    }
-    
-    private readonly Move[,] _killerMoves = new Move[SearchConstants.MaxDepth, 2];
-    private readonly int[,,] _historyScores = new int[2, 64, 64]; // [color, from, to]
-    
-    private void UpdateKillerMoves(Move move, int ply)
-    {
-        if (ply < SearchConstants.MaxDepth)
-        {
-            if (_killerMoves[ply, 0] != move)
-            {
-                _killerMoves[ply, 1] = _killerMoves[ply, 0];
-                _killerMoves[ply, 0] = move;
-            }
-        }
-    }
-    
-    private bool IsKillerMove(Move move, int ply)
-    {
-        return ply < SearchConstants.MaxDepth && 
-               (move == _killerMoves[ply, 0] || move == _killerMoves[ply, 1]);
-    }
-    
     private static Square GetKingSquare(Position position)
     {
         var king = position.GetBitboard(position.SideToMove, PieceType.King);
@@ -524,7 +543,7 @@ public sealed class SearchEngine
     
     private void CheckTimeLimit()
     {
-        if ((_info.Nodes & 1023) == 0)
+        if ((_threadData.Info.Nodes & 1023) == 0)
         {
             if (ShouldStopOnTime())
                 _shouldStop = true;
@@ -545,16 +564,6 @@ public sealed class SearchEngine
         moves.Set(j, temp);
     }
     
-    public int GetHashfull() => _transpositionTable.Usage();
-    
-    public void ResizeTranspositionTable(int sizeMb)
-    {
-        if (sizeMb != _transpositionTable.SizeMb)
-        {
-            _transpositionTable = new TranspositionTable(sizeMb);
-        }
-    }
-    
     private static bool HasNonPawnMaterial(Position position, Color color)
     {
         return position.GetBitboard(color, PieceType.Knight).IsNotEmpty() ||
@@ -570,40 +579,11 @@ public sealed class SearchEngine
         if (depth < 3 || moveNumber < 4)
             return 0;
             
-        // Base reduction using logarithmic formula
         var reduction = (int)(0.75 + Math.Log(depth) * Math.Log(moveNumber) / 2.25);
         
-        // Reduce more aggressively in non-PV nodes
         if (!isPvNode)
             reduction++;
             
-        // Don't reduce too much
         return Math.Min(reduction, depth - 2);
-    }
-    
-    private void UpdateHistoryScore(Move move, int bonus, Color color)
-    {
-        if (move.IsCapture || move.IsPromotion)
-            return;
-            
-        var colorIndex = color == Color.White ? 0 : 1;
-        ref var score = ref _historyScores[colorIndex, (int)move.From, (int)move.To];
-        
-        // Improved history update with better scaling
-        var absBonus = Math.Abs(bonus);
-        var scaledBonus = bonus - score * absBonus / 32768;
-        score += scaledBonus;
-        
-        // Clamp to prevent overflow
-        score = Math.Clamp(score, -32768, 32768);
-    }
-    
-    private int GetHistoryScore(Move move, Color color)
-    {
-        if (move.IsCapture || move.IsPromotion)
-            return 0;
-            
-        var colorIndex = color == Color.White ? 0 : 1;
-        return _historyScores[colorIndex, (int)move.From, (int)move.To];
     }
 }

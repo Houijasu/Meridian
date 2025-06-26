@@ -38,6 +38,8 @@ public sealed class MoveGenerator
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Bitboard GetAttackers(Position position, Square square, Bitboard occupancy)
     {
+        ArgumentNullException.ThrowIfNull(position);
+        
         var attackers = Bitboard.Empty;
         
         attackers |= AttackTables.PawnAttacks(square, Color.White) & position.GetBitboard(Color.Black, PieceType.Pawn);
@@ -61,6 +63,8 @@ public sealed class MoveGenerator
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool IsSquareAttacked(Position position, Square square, Color byColor)
     {
+        ArgumentNullException.ThrowIfNull(position);
+        
         var occupancy = position.OccupiedSquares();
         var enemyPieces = position.GetBitboard(byColor);
         
@@ -110,7 +114,7 @@ public sealed class MoveGenerator
         
         _checkers = GetAttackers(_position, kingSquare, occupancy) & _position.GetBitboard(them);
         _inCheck = _checkers.IsNotEmpty();
-        _inDoubleCheck = _checkers.PopCount() > 1;
+        _inDoubleCheck = Bitboard.PopCount(_checkers) > 1;
         
         _pinned = Bitboard.Empty;
         _checkMask = _inCheck ? Bitboard.Empty : Bitboard.Full;
@@ -134,7 +138,7 @@ public sealed class MoveGenerator
             var pinner = (Square)potentialPinners.GetLsbIndex();
             var between = GetRayBetween(kingSquare, pinner) & occupancy;
             
-            if (between.PopCount() == 1)
+            if (Bitboard.PopCount(between) == 1)
             {
                 _pinned |= between;
             }
