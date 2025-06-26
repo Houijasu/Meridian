@@ -48,7 +48,7 @@ public sealed class ThreadData
             PvTable[pvIndex + i] = PvTable[nextPvIndex + i];
         }
         
-        PvLength[ply] = PvLength[ply + 1];
+        PvLength[ply] = PvLength[ply + 1] + 1;
         
         // Update the root PV for display
         if (ply == 0)
@@ -77,6 +77,21 @@ public sealed class ThreadData
     {
         return ply < SearchConstants.MaxDepth && 
                (move == KillerMoves[ply, 0] || move == KillerMoves[ply, 1]);
+    }
+    
+    public Move GetPvMove(int ply)
+    {
+        if (ply >= SearchConstants.MaxDepth || ply >= PvLength[0])
+            return Move.None;
+            
+        // For ply 0, the PV starts at index 0
+        // For subsequent plies, we use the PV from the root
+        return PvTable[ply];
+    }
+    
+    public bool IsPvMove(Move move, int ply)
+    {
+        return move == GetPvMove(ply);
     }
     
     public void UpdateHistoryScore(Move move, int bonus, Color color)

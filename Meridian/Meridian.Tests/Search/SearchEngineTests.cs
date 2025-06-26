@@ -23,16 +23,9 @@ public class SearchEngineTests
 
         foreach (var (fen, expectedMove) in positions)
         {
-            Position position;
-            try
-            {
-                position = Position.FromFen(fen);
-            }
-            catch (ArgumentException ex)
-            {
-                Assert.Fail($"Failed to parse FEN: {fen} - {ex.Message}");
-                return;
-            }
+            var positionResult = Position.FromFen(fen);
+            Assert.IsTrue(positionResult.IsSuccess, $"Failed to parse FEN: {fen}");
+            var position = positionResult.Value;
             
             var limits = new SearchLimits { Depth = 3 };
             
@@ -51,7 +44,9 @@ public class SearchEngineTests
     public void Search_FindsBasicTactics()
     {
         var fen = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3";
-        var position = Position.FromFen(fen);
+        var positionResult = Position.FromFen(fen);
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 5 };
         
         var bestMove = _searchEngine.StartSearch(position, limits);
@@ -63,7 +58,9 @@ public class SearchEngineTests
     [TestMethod]
     public void Search_RespectsTimeLimit()
     {
-        var position = Position.FromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        var positionResult = Position.FromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { MoveTime = 100 };
         
         var startTime = DateTime.UtcNow;
@@ -77,7 +74,9 @@ public class SearchEngineTests
     [TestMethod]
     public void Search_IterativeDeepening()
     {
-        var position = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
+        var positionResult = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 6 };
         
         var bestMove = _searchEngine.StartSearch(position, limits);
@@ -99,7 +98,9 @@ public class SearchEngineTests
 
         foreach (var fen in drawPositions)
         {
-            var position = Position.FromFen(fen);
+            var positionResult = Position.FromFen(fen);
+            Assert.IsTrue(positionResult.IsSuccess);
+            var position = positionResult.Value;
             var limits = new SearchLimits { Depth = 5 };
             
             _searchEngine.StartSearch(position, limits);

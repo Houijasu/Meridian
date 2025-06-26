@@ -16,7 +16,9 @@ public class AdvancedSearchTests
     {
         // Famous zugzwang position where null move would fail
         var fen = "8/8/p1p5/1p5p/1P5p/8/PPP2K1p/4R1rk w - - 0 1";
-        var position = Position.FromFen(fen);
+        var positionResult = Position.FromFen(fen);
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 8 };
         
         var bestMove = _searchEngine.StartSearch(position, limits);
@@ -28,7 +30,9 @@ public class AdvancedSearchTests
     [TestMethod]
     public void AspirationWindows_RefinessScore()
     {
-        var position = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
+        var positionResult = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 10 };
         
         var bestMove = _searchEngine.StartSearch(position, limits);
@@ -42,7 +46,9 @@ public class AdvancedSearchTests
     [TestMethod]
     public void LateMovePruning_ReducesNodeCount()
     {
-        var position = Position.FromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        var positionResult = Position.FromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 8 };
         
         // Search with new engine (has LMR)
@@ -60,7 +66,9 @@ public class AdvancedSearchTests
     {
         // Position where check extension helps find mate
         var fen = "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
-        var position = Position.FromFen(fen);
+        var positionResult = Position.FromFen(fen);
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 6 };
         
         var bestMove = _searchEngine.StartSearch(position, limits);
@@ -73,14 +81,18 @@ public class AdvancedSearchTests
     [TestMethod] 
     public void HistoryHeuristic_ImprovesMoveOrdering()
     {
-        var position = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
+        var positionResult = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 8 };
         
         // First search to populate history
         _searchEngine.StartSearch(position, limits);
         
         // Second search should benefit from history
-        var position2 = Position.FromFen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+        var position2Result = Position.FromFen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
+        Assert.IsTrue(position2Result.IsSuccess);
+        var position2 = position2Result.Value;
         _searchEngine.StartSearch(position2, limits);
         
         // History should be working (this is hard to test directly)
@@ -92,7 +104,9 @@ public class AdvancedSearchTests
     {
         // Position where white is hopelessly behind
         var fen = "rrb1kbnr/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1";
-        var position = Position.FromFen(fen);
+        var positionResult = Position.FromFen(fen);
+        Assert.IsTrue(positionResult.IsSuccess);
+        var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 6 };
         
         var bestMove = _searchEngine.StartSearch(position, limits);

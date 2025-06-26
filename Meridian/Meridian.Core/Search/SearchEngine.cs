@@ -119,8 +119,9 @@ public sealed class SearchEngine
             
         CheckTimeLimit();
         
-        var inCheck = MoveGenerator.IsSquareAttacked(position, 
-            GetKingSquare(position), 
+        var ourKing = GetKingSquare(position, position.SideToMove);
+        var inCheck = ourKing != Square.None && MoveGenerator.IsSquareAttacked(position, 
+            ourKing, 
             position.SideToMove == Color.White ? Color.Black : Color.White);
         
         // Check extension
@@ -197,8 +198,9 @@ public sealed class SearchEngine
             var score = 0;
             var newDepth = depth - 1;
             
-            var givesCheck = MoveGenerator.IsSquareAttacked(newPosition, 
-                GetKingSquare(newPosition), 
+            var opponentKing = GetKingSquare(newPosition, newPosition.SideToMove);
+            var givesCheck = opponentKing != Square.None && MoveGenerator.IsSquareAttacked(newPosition, 
+                opponentKing, 
                 newPosition.SideToMove == Color.White ? Color.Black : Color.White);
             
             // Late move reductions (LMR)
@@ -495,9 +497,9 @@ public sealed class SearchEngine
                (move == _killerMoves[ply, 0] || move == _killerMoves[ply, 1]);
     }
     
-    private static Square GetKingSquare(Position position)
+    private static Square GetKingSquare(Position position, Color color)
     {
-        var king = position.GetBitboard(position.SideToMove, PieceType.King);
+        var king = position.GetBitboard(color, PieceType.King);
         return king.IsEmpty() ? Square.None : (Square)king.GetLsbIndex();
     }
     

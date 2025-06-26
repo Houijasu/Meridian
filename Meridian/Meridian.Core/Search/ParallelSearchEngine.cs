@@ -7,7 +7,7 @@ namespace Meridian.Core.Search;
 public sealed class ParallelSearchEngine : IDisposable
 {
     private TranspositionTable _transpositionTable;
-    private readonly ThreadPool _threadPool;
+    private ThreadPool _threadPool;
     private int _threadCount;
     
     public SearchInfo SearchInfo => _threadPool.BestThreadData?.Info ?? new SearchInfo();
@@ -45,8 +45,7 @@ public sealed class ParallelSearchEngine : IDisposable
             // Recreate thread pool with new TT
             var oldThreadCount = _threadPool.ThreadCount;
             _threadPool.Dispose();
-            _threadPool.SetThreadCount(0);
-            _threadPool.SetThreadCount(oldThreadCount);
+            _threadPool = new ThreadPool(_transpositionTable, oldThreadCount);
         }
     }
     

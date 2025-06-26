@@ -174,7 +174,7 @@ public sealed class SearchThread : IDisposable
         _threadData.Info.Nodes++;
         
         var isPvNode = beta - alpha > 1;
-        _threadData.PvLength[ply] = ply;
+        _threadData.PvLength[ply] = 0;
         
         if (ply > 0 && position.IsDraw())
             return 0;
@@ -196,8 +196,9 @@ public sealed class SearchThread : IDisposable
             
         CheckTimeLimit();
         
-        var inCheck = MoveGenerator.IsSquareAttacked(position, 
-            GetKingSquare(position), 
+        var ourKing = GetKingSquare(position, position.SideToMove);
+        var inCheck = ourKing != Square.None && MoveGenerator.IsSquareAttacked(position, 
+            ourKing, 
             position.SideToMove == Color.White ? Color.Black : Color.White);
         
         // Check extension
@@ -272,8 +273,9 @@ public sealed class SearchThread : IDisposable
             var score = 0;
             var newDepth = depth - 1;
             
-            var givesCheck = MoveGenerator.IsSquareAttacked(newPosition, 
-                GetKingSquare(newPosition), 
+            var opponentKing = GetKingSquare(newPosition, newPosition.SideToMove);
+            var givesCheck = opponentKing != Square.None && MoveGenerator.IsSquareAttacked(newPosition, 
+                opponentKing, 
                 newPosition.SideToMove == Color.White ? Color.Black : Color.White);
             
             // Late move reductions (LMR)
@@ -288,18 +290,36 @@ public sealed class SearchThread : IDisposable
                 newDepth = Math.Max(1, newDepth - reduction);
             }
             
-            // Search with reduced window for non-PV nodes
+            // Principal Variation Search (PVS)
             if (movesSearched == 0)
             {
+                // First move is searched with full window
                 score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
             }
             else
             {
-                score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
-                
-                if (score > alpha && score < beta)
+                // For non-first moves at PV nodes, use zero window
+                if (isPvNode)
                 {
-                    score = -Search(newPosition, depth - 1, -beta, -alpha, ply + 1);
+                    // Search with zero window
+                    score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
+                    
+                    // If it fails high, we need a re-search
+                    if (score > alpha)
+                    {
+                        _threadData.Info.PvsReSearches++;
+                        score = -Search(newPosition, depth - 1, -beta, -alpha, ply + 1);
+                    }
+                    else
+                    {
+                        // Zero window correctly predicted this move isn't best
+                        _threadData.Info.PvsHits++;
+                    }
+                }
+                else
+                {
+                    // Non-PV nodes use regular search
+                    score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
                 }
             }
             
@@ -409,13 +429,16 @@ public sealed class SearchThread : IDisposable
     private void OrderMoves(ref MoveList moves, Position position, Move ttMove, int ply)
     {
         Span<int> scores = stackalloc int[moves.Count];
+        var pvMove = _threadData.GetPvMove(ply);
         
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
             
-            if (move == ttMove)
-                scores[i] = 1_000_000;
+            if (move == pvMove)
+                scores[i] = 2_000_000;  // PV move has highest priority
+            else if (move == ttMove)
+                scores[i] = 1_000_000;  // TT move second priority
             else if (move.IsCapture)
                 scores[i] = ScoreCapture(move, position) + 100_000;
             else if (_threadData.IsKillerMove(move, ply))
@@ -514,9 +537,9 @@ public sealed class SearchThread : IDisposable
         }
     }
     
-    private static Square GetKingSquare(Position position)
+    private static Square GetKingSquare(Position position, Color color)
     {
-        var king = position.GetBitboard(position.SideToMove, PieceType.King);
+        var king = position.GetBitboard(color, PieceType.King);
         return king.IsEmpty() ? Square.None : (Square)king.GetLsbIndex();
     }
     
@@ -525,7 +548,7 @@ public sealed class SearchThread : IDisposable
         if (limits.MoveTime > 0)
             return limits.MoveTime;
             
-        if (limits.Infinite)
+        if (limits.Infinite || limits.Depth > 0)
             return int.MaxValue;
             
         var timeLeft = position.SideToMove == Color.White ? limits.WhiteTime : limits.BlackTime;
