@@ -105,6 +105,8 @@ public sealed class SearchThread : IDisposable
         var position = _rootPosition!;
         var limits = _limits!;
         Move bestMove = Move.None;
+        Move previousBestMove = Move.None;
+        var moveStability = 0;
         var maxDepth = limits.Depth > 0 ? Math.Min(limits.Depth, SearchConstants.MaxDepth) : SearchConstants.MaxDepth;
         
         // Apply depth offset for helper threads
@@ -113,34 +115,83 @@ public sealed class SearchThread : IDisposable
         for (var depth = startDepth; depth <= maxDepth && !_shouldStop; depth++)
         {
             var score = 0;
+            var alpha = -SearchConstants.Infinity;
+            var beta = SearchConstants.Infinity;
             
-            // Use aspiration windows for main thread
-            if (_threadId == 0 && depth >= 5 && _threadData.Info.Score != 0)
+            // Use aspiration windows for main thread after depth 4 with previous score
+            if (_threadId == 0 && depth >= 5 && _threadData.Info.Score != 0 && 
+                Math.Abs(_threadData.Info.Score) < SearchConstants.MateInMaxPly)
             {
-                var aspirationDelta = 25;
-                var alpha = _threadData.Info.Score - aspirationDelta;
-                var beta = _threadData.Info.Score + aspirationDelta;
+                // Dynamic window size based on depth and stability
+                var baseWindow = 16;
+                var depthFactor = Math.Min(depth / 8, 4);
+                var stabilityBonus = moveStability >= 3 ? 8 : 0;
+                var aspirationDelta = baseWindow + depthFactor * 4 - stabilityBonus;
                 
+                alpha = _threadData.Info.Score - aspirationDelta;
+                beta = _threadData.Info.Score + aspirationDelta;
+                
+                // Initial search with aspiration window
                 score = Search(position, depth, alpha, beta, 0);
                 
-                // Re-search if we fall outside aspiration window
-                if (score <= alpha || score >= beta)
+                // Handle aspiration failures with exponential widening
+                var researchCount = 0;
+                var aspirationFailed = score <= alpha || score >= beta;
+                
+                if (!aspirationFailed)
                 {
-                    aspirationDelta *= 2;
-                    alpha = score <= alpha ? -SearchConstants.Infinity : _threadData.Info.Score - aspirationDelta;
-                    beta = score >= beta ? SearchConstants.Infinity : _threadData.Info.Score + aspirationDelta;
+                    _threadData.Info.AspirationHits++;
+                }
+                else
+                {
+                    _threadData.Info.AspirationMisses++;
+                }
+                
+                while (!_shouldStop && (score <= alpha || score >= beta))
+                {
+                    researchCount++;
+                    
+                    // Exponential widening: 2x, 4x, 8x, then full window
+                    if (researchCount >= 4)
+                    {
+                        alpha = -SearchConstants.Infinity;
+                        beta = SearchConstants.Infinity;
+                    }
+                    else
+                    {
+                        var multiplier = 1 << researchCount; // 2, 4, 8
+                        aspirationDelta = baseWindow * multiplier;
+                        
+                        if (score <= alpha)
+                            alpha = Math.Max(-SearchConstants.Infinity, _threadData.Info.Score - aspirationDelta);
+                        if (score >= beta)
+                            beta = Math.Min(SearchConstants.Infinity, _threadData.Info.Score + aspirationDelta);
+                    }
+                    
                     score = Search(position, depth, alpha, beta, 0);
                 }
             }
             else
             {
-                score = Search(position, depth, -SearchConstants.Infinity, SearchConstants.Infinity, 0);
+                // Full window search for early depths or helper threads
+                score = Search(position, depth, alpha, beta, 0);
             }
             
             if (_shouldStop)
                 break;
                 
             bestMove = _threadData.Info.PrincipalVariation.Count > 0 ? _threadData.Info.PrincipalVariation[0] : Move.None;
+            
+            // Track move stability
+            if (bestMove != Move.None && bestMove == previousBestMove)
+            {
+                moveStability++;
+            }
+            else
+            {
+                moveStability = 0;
+                previousBestMove = bestMove;
+            }
             
             _threadData.Info.Depth = depth;
             _threadData.Info.Score = score;
@@ -152,7 +203,14 @@ public sealed class SearchThread : IDisposable
                 _threadPool.UpdateBestMove(bestMove, score, _threadData);
             }
             
+            // Exit early if we found a mate
             if (Math.Abs(score) >= SearchConstants.MateScore - SearchConstants.MaxDepth)
+            {
+                break;
+            }
+            
+            // Exit early if move is very stable (same best move for 5+ depths)
+            if (_threadId == 0 && moveStability >= 5 && depth >= 12)
             {
                 break;
             }
