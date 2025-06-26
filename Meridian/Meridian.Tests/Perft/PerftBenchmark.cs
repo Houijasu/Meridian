@@ -104,9 +104,9 @@ public class PerftBenchmark
             var moveIndex = i % moves.Count;
             var move = moves[moveIndex];
             
-            var newPosition = ClonePosition(position);
-            newPosition.MakeMove(move);
-            _ = newPosition.ZobristKey;
+            var undoInfo = position.MakeMove(move);
+            _ = position.ZobristKey;
+            position.UnmakeMove(move, undoInfo);
         }
         
         sw.Stop();
@@ -131,16 +131,12 @@ public class PerftBenchmark
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
-            var newPosition = ClonePosition(position);
-            newPosition.MakeMove(move);
-            nodes += Perft(newPosition, depth - 1);
+            var undoInfo = position.MakeMove(move);
+            nodes += Perft(position, depth - 1);
+            position.UnmakeMove(move, undoInfo);
         }
 
         return nodes;
     }
 
-    private static Position ClonePosition(Position position)
-    {
-        return new Position(position);
-    }
 }

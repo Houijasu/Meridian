@@ -117,7 +117,7 @@ public sealed class Position
     public UndoInfo MakeMove(Move move)
     {
         // Save state for undo
-        var capturedPiece = GetPiece(move.To);
+        var capturedPiece = Piece.None;
         var oldCastlingRights = CastlingRights;
         var oldEnPassantSquare = EnPassantSquare;
         var oldHalfmoveClock = HalfmoveClock;
@@ -131,10 +131,12 @@ public sealed class Position
         if (move.IsEnPassant)
         {
             var captureSquare = SideToMove == Color.White ? to - 8 : to + 8;
+            capturedPiece = GetPiece((Square)captureSquare);
             RemovePiece((Square)captureSquare);
         }
         else if (move.IsCapture)
         {
+            capturedPiece = GetPiece(to);
             RemovePiece(to);
         }
         
@@ -226,17 +228,14 @@ public sealed class Position
         ZobristKey ^= Zobrist.SideKey();
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
         
-        // Handle special case for en passant captures
-        if (move.IsEnPassant)
-        {
-            capturedPiece = PieceExtensions.MakePiece(SideToMove, PieceType.Pawn); // opponent's pawn
-        }
-        
         return new UndoInfo(capturedPiece, oldCastlingRights, oldEnPassantSquare, oldHalfmoveClock, oldZobristKey);
     }
     
     public void UnmakeMove(Move move, UndoInfo undoInfo)
     {
+        // Check if this was Black's move before switching sides
+        var wasBlacksMove = SideToMove == Color.White;
+        
         // Switch back the side to move
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
         
@@ -309,7 +308,7 @@ public sealed class Position
         ZobristKey = undoInfo.ZobristKey;
         
         // Decrement fullmove number if needed
-        if (SideToMove == Color.Black)
+        if (wasBlacksMove)
             FullmoveNumber--;
     }
     
@@ -329,6 +328,35 @@ public sealed class Position
             
         ZobristKey ^= Zobrist.SideKey();
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
+    }
+    
+    public UndoInfo MakeNullMoveWithUndo()
+    {
+        var oldEnPassantSquare = EnPassantSquare;
+        var oldHalfmoveClock = HalfmoveClock;
+        var oldZobristKey = ZobristKey;
+        
+        MakeNullMove();
+        
+        return new UndoInfo(Piece.None, CastlingRights, oldEnPassantSquare, oldHalfmoveClock, oldZobristKey);
+    }
+    
+    public void UnmakeNullMove(UndoInfo undoInfo)
+    {
+        // Check if this was Black's null move before switching sides
+        var wasBlacksMove = SideToMove == Color.White;
+        
+        // Restore side to move
+        SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
+        
+        // Restore fullmove number if needed
+        if (wasBlacksMove)
+            FullmoveNumber--;
+            
+        // Restore other fields
+        HalfmoveClock = undoInfo.HalfmoveClock;
+        EnPassantSquare = undoInfo.EnPassantSquare;
+        ZobristKey = undoInfo.ZobristKey;
     }
 
     public static Result<Position> FromFen(string? fen)

@@ -107,7 +107,7 @@ public class PerftTests
         var tests = new[]
         {
             ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 1, 31UL),
-            ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 2, 908UL),
+            ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 2, 707UL),
             ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 3, 27837UL),
             ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 4, 824064UL)
         };
@@ -220,18 +220,14 @@ public class PerftTests
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
-            var newPosition = ClonePosition(position);
-            newPosition.MakeMove(move);
-            nodes += Perft(newPosition, depth - 1);
+            var undoInfo = position.MakeMove(move);
+            nodes += Perft(position, depth - 1);
+            position.UnmakeMove(move, undoInfo);
         }
 
         return nodes;
     }
 
-    private static Position ClonePosition(Position position)
-    {
-        return new Position(position);
-    }
 
     private Dictionary<string, ulong> PerftDivide(Position position, int depth)
     {
@@ -245,9 +241,9 @@ public class PerftTests
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
-            var newPosition = ClonePosition(position);
-            newPosition.MakeMove(move);
-            var nodes = depth > 1 ? Perft(newPosition, depth - 1) : 1;
+            var undoInfo = position.MakeMove(move);
+            var nodes = depth > 1 ? Perft(position, depth - 1) : 1;
+            position.UnmakeMove(move, undoInfo);
             results[move.ToUci()] = nodes;
         }
 

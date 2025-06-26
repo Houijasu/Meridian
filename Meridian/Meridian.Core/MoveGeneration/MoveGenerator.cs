@@ -19,20 +19,35 @@ public sealed class MoveGenerator
         _position = position;
         moves.Clear();
         
+        // Generate pseudo-legal moves first
+        Span<Move> pseudoLegalBuffer = stackalloc Move[218];
+        var pseudoLegalMoves = new MoveList(pseudoLegalBuffer);
+        
         CalculateCheckersAndPinned();
         
         if (_inDoubleCheck)
         {
-            GenerateKingMoves(ref moves);
-            return;
+            GenerateKingMoves(ref pseudoLegalMoves);
+        }
+        else
+        {
+            GeneratePawnMoves(ref pseudoLegalMoves);
+            GenerateKnightMoves(ref pseudoLegalMoves);
+            GenerateBishopMoves(ref pseudoLegalMoves);
+            GenerateRookMoves(ref pseudoLegalMoves);
+            GenerateQueenMoves(ref pseudoLegalMoves);
+            GenerateKingMoves(ref pseudoLegalMoves);
         }
         
-        GeneratePawnMoves(ref moves);
-        GenerateKnightMoves(ref moves);
-        GenerateBishopMoves(ref moves);
-        GenerateRookMoves(ref moves);
-        GenerateQueenMoves(ref moves);
-        GenerateKingMoves(ref moves);
+        // Filter to only legal moves
+        for (var i = 0; i < pseudoLegalMoves.Count; i++)
+        {
+            var move = pseudoLegalMoves[i];
+            if (IsMoveLegal(move))
+            {
+                moves.Add(move);
+            }
+        }
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -155,6 +170,11 @@ public sealed class MoveGenerator
         
         if (fileDiff == 0 && rankDiff == 0) return Bitboard.Empty;
         
+        // Ensure the squares are on the same line (rank, file, or diagonal)
+        if (fileDiff != 0 && rankDiff != 0 && 
+            Math.Abs(fileDiff) != Math.Abs(rankDiff))
+            return Bitboard.Empty;
+        
         int direction;
         if (fileDiff == 0)
             direction = rankDiff > 0 ? AttackTables.Directions.North : AttackTables.Directions.South;
@@ -162,11 +182,26 @@ public sealed class MoveGenerator
             direction = fileDiff > 0 ? AttackTables.Directions.East : AttackTables.Directions.West;
         else if (fileDiff == rankDiff)
             direction = fileDiff > 0 ? AttackTables.Directions.NorthEast : AttackTables.Directions.SouthWest;
-        else
+        else // fileDiff == -rankDiff
             direction = fileDiff > 0 ? AttackTables.Directions.SouthEast : AttackTables.Directions.NorthWest;
             
         var ray1 = AttackTables.GetRay(from, direction);
-        var ray2 = AttackTables.GetRay(to, direction ^ 4);
+        
+        // Get opposite direction
+        var oppositeDirection = direction switch
+        {
+            AttackTables.Directions.NorthWest => AttackTables.Directions.SouthEast,
+            AttackTables.Directions.North => AttackTables.Directions.South,
+            AttackTables.Directions.NorthEast => AttackTables.Directions.SouthWest,
+            AttackTables.Directions.West => AttackTables.Directions.East,
+            AttackTables.Directions.East => AttackTables.Directions.West,
+            AttackTables.Directions.SouthWest => AttackTables.Directions.NorthEast,
+            AttackTables.Directions.South => AttackTables.Directions.North,
+            AttackTables.Directions.SouthEast => AttackTables.Directions.NorthWest,
+            _ => direction
+        };
+        
+        var ray2 = AttackTables.GetRay(to, oppositeDirection);
         
         return ray1 & ray2;
     }
@@ -215,18 +250,19 @@ public sealed class MoveGenerator
             if (_position.EnPassantSquare != Square.None)
             {
                 var epTarget = _position.EnPassantSquare.ToBitboard();
+                // Find our pawns that can capture on the en passant square
+                // We need to check which of OUR pawns can attack the en passant square
+                // This means we need pawn attacks FROM the en passant square by the OPPONENT
+                // to find squares where OUR pawns could be
                 if ((AttackTables.PawnAttacks(_position.EnPassantSquare, them) & nonPromotionPawns).IsNotEmpty())
                 {
                     var attackers = AttackTables.PawnAttacks(_position.EnPassantSquare, them) & nonPromotionPawns;
                     while (attackers.IsNotEmpty())
                     {
                         var from = (Square)attackers.GetLsbIndex();
-                        if (IsEnPassantLegal(from, _position.EnPassantSquare))
-                        {
-                            moves.Add(from, _position.EnPassantSquare, 
-                                      MoveType.Capture | MoveType.EnPassant, 
-                                      PieceExtensions.MakePiece(them, PieceType.Pawn));
-                        }
+                        moves.Add(from, _position.EnPassantSquare, 
+                                  MoveType.Capture | MoveType.EnPassant, 
+                                  PieceExtensions.MakePiece(them, PieceType.Pawn));
                         attackers = attackers.RemoveLsb();
                     }
                 }
@@ -392,7 +428,10 @@ public sealed class MoveGenerator
             if (isPinned)
             {
                 var king = (Square)_position.GetBitboard(us, PieceType.King).GetLsbIndex();
-                attacks &= GetRayBetween(king, from) | GetRayExtension(king, from);
+                // Include both the ray between king and piece AND the extension beyond the piece
+                // This allows the pinned piece to capture its pinner
+                var fullPinRay = GetFullRay(king, from);
+                attacks &= fullPinRay;
             }
             
             while (attacks.IsNotEmpty())
@@ -426,16 +465,12 @@ public sealed class MoveGenerator
         while (attacks.IsNotEmpty())
         {
             var to = (Square)attacks.GetLsbIndex();
-            var newOccupancy = (occupancy & ~from.ToBitboard()) | to.ToBitboard();
             
-            if (!IsSquareAttacked(_position, to, us == Color.White ? Color.Black : Color.White))
-            {
-                var captured = _position.GetPiece(to);
-                if (captured == Piece.None)
-                    moves.AddQuiet(from, to);
-                else
-                    moves.AddCapture(from, to, captured);
-            }
+            var captured = _position.GetPiece(to);
+            if (captured == Piece.None)
+                moves.AddQuiet(from, to);
+            else
+                moves.AddCapture(from, to, captured);
             
             attacks = attacks.RemoveLsb();
         }
@@ -520,6 +555,11 @@ public sealed class MoveGenerator
         
         if (fileDiff == 0 && rankDiff == 0) return Bitboard.Empty;
         
+        // Ensure the squares are on the same line (rank, file, or diagonal)
+        if (fileDiff != 0 && rankDiff != 0 && 
+            Math.Abs(fileDiff) != Math.Abs(rankDiff))
+            return Bitboard.Empty;
+        
         int direction;
         if (fileDiff == 0)
             direction = rankDiff > 0 ? AttackTables.Directions.North : AttackTables.Directions.South;
@@ -527,38 +567,76 @@ public sealed class MoveGenerator
             direction = fileDiff > 0 ? AttackTables.Directions.East : AttackTables.Directions.West;
         else if (fileDiff == rankDiff)
             direction = fileDiff > 0 ? AttackTables.Directions.NorthEast : AttackTables.Directions.SouthWest;
-        else
+        else // fileDiff == -rankDiff
             direction = fileDiff > 0 ? AttackTables.Directions.SouthEast : AttackTables.Directions.NorthWest;
             
         return AttackTables.GetRay(to, direction);
     }
     
-    private bool IsEnPassantLegal(Square from, Square to)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Bitboard GetFullRay(Square from, Square to)
+    {
+        var fileDiff = to.File() - from.File();
+        var rankDiff = to.Rank() - from.Rank();
+        
+        if (fileDiff == 0 && rankDiff == 0) return Bitboard.Empty;
+        
+        // Ensure the squares are on the same line
+        if (fileDiff != 0 && rankDiff != 0 && 
+            Math.Abs(fileDiff) != Math.Abs(rankDiff))
+            return Bitboard.Empty;
+        
+        int direction1, direction2;
+        if (fileDiff == 0)
+        {
+            direction1 = rankDiff > 0 ? AttackTables.Directions.North : AttackTables.Directions.South;
+            direction2 = rankDiff > 0 ? AttackTables.Directions.South : AttackTables.Directions.North;
+        }
+        else if (rankDiff == 0)
+        {
+            direction1 = fileDiff > 0 ? AttackTables.Directions.East : AttackTables.Directions.West;
+            direction2 = fileDiff > 0 ? AttackTables.Directions.West : AttackTables.Directions.East;
+        }
+        else if (fileDiff == rankDiff)
+        {
+            direction1 = fileDiff > 0 ? AttackTables.Directions.NorthEast : AttackTables.Directions.SouthWest;
+            direction2 = fileDiff > 0 ? AttackTables.Directions.SouthWest : AttackTables.Directions.NorthEast;
+        }
+        else // fileDiff == -rankDiff
+        {
+            direction1 = fileDiff > 0 ? AttackTables.Directions.SouthEast : AttackTables.Directions.NorthWest;
+            direction2 = fileDiff > 0 ? AttackTables.Directions.NorthWest : AttackTables.Directions.SouthEast;
+        }
+        
+        // Get rays in both directions from both squares
+        return AttackTables.GetRay(from, direction1) | AttackTables.GetRay(from, direction2) |
+               AttackTables.GetRay(to, direction1) | AttackTables.GetRay(to, direction2) |
+               from.ToBitboard() | to.ToBitboard(); // Include the endpoints
+    }
+    
+    private bool IsMoveLegal(Move move)
     {
         var us = _position.SideToMove;
-        var them = us == Color.White ? Color.Black : Color.White;
-        var capturedSquare = (Square)((int)to + (us == Color.White ? -8 : 8));
         
-        var occupancy = _position.OccupiedSquares();
-        occupancy &= ~from.ToBitboard();
-        occupancy &= ~capturedSquare.ToBitboard();
-        occupancy |= to.ToBitboard();
+        // Make the move temporarily
+        var undoInfo = _position.MakeMove(move);
         
-        var king = _position.GetBitboard(us, PieceType.King);
-        if (king.IsEmpty()) return true;
-        
-        var kingSquare = (Square)king.GetLsbIndex();
-        
-        var enemyRookQueens = _position.GetBitboard(them, PieceType.Rook) | 
-                              _position.GetBitboard(them, PieceType.Queen);
-        if ((MagicBitboards.GetRookAttacks(kingSquare, occupancy) & enemyRookQueens).IsNotEmpty())
+        // After making the move, we need to check if OUR king (not the opponent's) is attacked
+        // The side to move has switched, so we look for our king and check if it's attacked by the current side to move
+        var ourKing = _position.GetBitboard(us, PieceType.King);
+        if (ourKing.IsEmpty())
+        {
+            // King was captured - this should never happen in legal chess
+            _position.UnmakeMove(move, undoInfo);
             return false;
-            
-        var enemyBishopQueens = _position.GetBitboard(them, PieceType.Bishop) | 
-                                _position.GetBitboard(them, PieceType.Queen);
-        if ((MagicBitboards.GetBishopAttacks(kingSquare, occupancy) & enemyBishopQueens).IsNotEmpty())
-            return false;
-            
-        return true;
+        }
+        
+        var kingSquare = (Square)ourKing.GetLsbIndex();
+        var isLegal = !IsSquareAttacked(_position, kingSquare, _position.SideToMove);
+        
+        // Restore the position
+        _position.UnmakeMove(move, undoInfo);
+        
+        return isLegal;
     }
 }

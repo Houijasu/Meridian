@@ -163,13 +163,10 @@ public static class AttackTables
     
     private static void InitializeRayAttacks()
     {
-        var directions = new[] { -9, -8, -7, -1, 1, 7, 8, 9 };
+        var directions = new[] { 7, 8, 9, -1, 1, -9, -8, -7 };
         
         for (var square = 0; square < 64; square++)
         {
-            var file = square & 7;
-            var rank = square >> 3;
-            
             for (var dir = 0; dir < 8; dir++)
             {
                 var attacks = Bitboard.Empty;
@@ -178,19 +175,28 @@ public static class AttackTables
                 
                 while (true)
                 {
+                    var prevSquare = currentSquare;
                     currentSquare += offset;
-                    var newFile = currentSquare & 7;
-                    var newRank = currentSquare >> 3;
                     
+                    // Check for out of bounds
                     if (currentSquare < 0 || currentSquare >= 64)
                         break;
-                        
-                    if (Math.Abs(newFile - ((currentSquare - offset) & 7)) > 1)
+                    
+                    var prevFile = prevSquare & 7;
+                    var newFile = currentSquare & 7;
+                    var prevRank = prevSquare >> 3;
+                    var newRank = currentSquare >> 3;
+                    
+                    // Check for wrap-around by ensuring file and rank changes are at most 1
+                    var fileDiff = Math.Abs(newFile - prevFile);
+                    var rankDiff = Math.Abs(newRank - prevRank);
+                    
+                    // For diagonal moves, both should change by 1
+                    // For straight moves, only one should change by 1
+                    if (fileDiff > 1 || rankDiff > 1)
                         break;
-                        
+                    
                     attacks |= (Bitboard)(1UL << currentSquare);
-                    file = newFile;
-                    rank = newRank;
                 }
                 
                 s_rayAttacks[square * 8 + dir] = attacks;

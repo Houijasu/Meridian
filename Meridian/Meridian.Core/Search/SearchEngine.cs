@@ -135,10 +135,11 @@ public sealed class SearchEngine
             staticEval >= beta && HasNonPawnMaterial(position, position.SideToMove))
         {
             var reduction = 3 + depth / 4 + Math.Min((staticEval - beta) / 200, 3);
-            var nullPosition = new Position(position);
-            nullPosition.MakeNullMove();
+            var nullUndoInfo = position.MakeNullMoveWithUndo();
             
-            var nullScore = -Search(nullPosition, depth - reduction - 1, -beta, -beta + 1, ply + 1, false);
+            var nullScore = -Search(position, depth - reduction - 1, -beta, -beta + 1, ply + 1, false);
+            
+            position.UnmakeNullMove(nullUndoInfo);
             
             if (nullScore >= beta)
             {
@@ -192,16 +193,15 @@ public sealed class SearchEngine
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
-            var newPosition = new Position(position);
-            newPosition.MakeMove(move);
+            var undoInfo = position.MakeMove(move);
             
             var score = 0;
             var newDepth = depth - 1;
             
-            var opponentKing = GetKingSquare(newPosition, newPosition.SideToMove);
-            var givesCheck = opponentKing != Square.None && MoveGenerator.IsSquareAttacked(newPosition, 
+            var opponentKing = GetKingSquare(position, position.SideToMove);
+            var givesCheck = opponentKing != Square.None && MoveGenerator.IsSquareAttacked(position, 
                 opponentKing, 
-                newPosition.SideToMove == Color.White ? Color.Black : Color.White);
+                position.SideToMove == Color.White ? Color.Black : Color.White);
             
             // Late move reductions (LMR)
             if (movesSearched >= 4 && depth >= 3 && !inCheck && !givesCheck &&
@@ -219,20 +219,23 @@ public sealed class SearchEngine
             // Search with reduced window for non-PV nodes
             if (movesSearched == 0)
             {
-                score = -Search(newPosition, newDepth, -beta, -alpha, ply + 1);
+                score = -Search(position, newDepth, -beta, -alpha, ply + 1);
             }
             else
             {
-                score = -Search(newPosition, newDepth, -alpha - 1, -alpha, ply + 1);
+                score = -Search(position, newDepth, -alpha - 1, -alpha, ply + 1);
                 
                 // Re-search with full window if we improve alpha
                 if (score > alpha && score < beta)
                 {
-                    score = -Search(newPosition, depth - 1, -beta, -alpha, ply + 1);
+                    score = -Search(position, depth - 1, -beta, -alpha, ply + 1);
                 }
             }
             
             movesSearched++;
+            
+            // Unmake the move before any early exit
+            position.UnmakeMove(move, undoInfo);
             
             if (_shouldStop)
                 return 0;
@@ -319,10 +322,11 @@ public sealed class SearchEngine
             if (standPat + captureValue + 200 < alpha && move.PromotionType == PieceType.None)
                 continue;
             
-            var newPosition = new Position(position);
-            newPosition.MakeMove(move);
+            var undoInfo = position.MakeMove(move);
             
-            var score = -Quiescence(newPosition, -beta, -alpha, ply + 1);
+            var score = -Quiescence(position, -beta, -alpha, ply + 1);
+            
+            position.UnmakeMove(move, undoInfo);
             
             if (_shouldStop)
                 return 0;
