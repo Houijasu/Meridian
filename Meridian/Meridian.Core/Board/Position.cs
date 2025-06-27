@@ -131,6 +131,7 @@ public sealed class Position
         if (move.IsEnPassant)
         {
             var captureSquare = SideToMove == Color.White ? to - 8 : to + 8;
+            System.Diagnostics.Debug.Assert((int)captureSquare >= 0 && (int)captureSquare < 64, $"Invalid captureSquare: {captureSquare}");
             capturedPiece = GetPiece((Square)captureSquare);
             RemovePiece((Square)captureSquare);
         }
@@ -208,9 +209,38 @@ public sealed class Position
             ZobristKey ^= Zobrist.EnPassantKey(EnPassantSquare);
         }
         
-        EnPassantSquare = move.IsDoublePush ? 
-            (Square)((int)from + (SideToMove == Color.White ? 8 : -8)) : 
-            Square.None;
+        // Only set en passant square if an opposing pawn can capture
+        if (move.IsDoublePush)
+        {
+            var potentialEpSquare = (Square)((int)from + (SideToMove == Color.White ? 8 : -8));
+            var destFile = to.File();
+            var destRank = to.Rank();
+            var opposingPawn = SideToMove == Color.White ? Piece.BlackPawn : Piece.WhitePawn;
+            
+            bool canBeCapturedEnPassant = false;
+            
+            // Check left adjacent file
+            if (destFile > 0)
+            {
+                var leftSquare = SquareExtensions.FromFileRank(destFile - 1, destRank);
+                if (GetPiece(leftSquare) == opposingPawn)
+                    canBeCapturedEnPassant = true;
+            }
+            
+            // Check right adjacent file
+            if (destFile < 7 && !canBeCapturedEnPassant)
+            {
+                var rightSquare = SquareExtensions.FromFileRank(destFile + 1, destRank);
+                if (GetPiece(rightSquare) == opposingPawn)
+                    canBeCapturedEnPassant = true;
+            }
+            
+            EnPassantSquare = canBeCapturedEnPassant ? potentialEpSquare : Square.None;
+        }
+        else
+        {
+            EnPassantSquare = Square.None;
+        }
             
         if (EnPassantSquare != Square.None)
         {
