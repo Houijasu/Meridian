@@ -23,8 +23,6 @@ public class KiwipetePerftDivide
         Console.WriteLine("Kiwipete position perft divide at depth 1:");
         Console.WriteLine("Expected total: 48");
         
-        var total = 0UL;
-        
         Span<Move> moveBuffer = stackalloc Move[218];
         var moves = new MoveList(moveBuffer);
         

@@ -6,7 +6,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Meridian.Core", "Meridian.C
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Meridian.Tests", "Meridian.Tests\Meridian.Tests.csproj", "{C6F6E6F6-8D6D-4C6D-9D6D-2F6F6E6F6E6F}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Meridian.CLI", "Meridian.CLI\Meridian.CLI.csproj", "{D7F7F7F7-9E7E-4D7E-AE7E-3F7F7F7F7F7F}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Meridian", "Meridian\Meridian\Meridian.csproj", "{D7F7F7F7-9E7E-4D7E-AE7E-3F7F7F7F7F7F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

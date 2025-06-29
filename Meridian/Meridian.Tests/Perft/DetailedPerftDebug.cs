@@ -33,13 +33,14 @@ public class DetailedPerftDebug
         var moves = new MoveList(moveBuffer);
         _moveGenerator.GenerateMoves(position, ref moves);
         
+        Span<Move> responseBuffer = stackalloc Move[218];
+        
         for (int i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
             var undoInfo = position.MakeMove(move);
             
             // Count responses
-            Span<Move> responseBuffer = stackalloc Move[218];
             var responses = new MoveList(responseBuffer);
             _moveGenerator.GenerateMoves(position, ref responses);
             
@@ -82,12 +83,14 @@ public class DetailedPerftDebug
         // Now play some black moves and check deeper
         var testMoves = new[] { "g8f6", "e7e5", "e7e6", "g7g5" };
         
+        Span<Move> blackMoves = stackalloc Move[218];
+        Span<Move> whiteMoves = stackalloc Move[218];
+        
         foreach (var moveStr in testMoves)
         {
             Console.WriteLine($"\nChecking after h2h4 {moveStr}:");
             
             // Find the move
-            Span<Move> blackMoves = stackalloc Move[218];
             var blackList = new MoveList(blackMoves);
             _moveGenerator.GenerateMoves(position, ref blackList);
             
@@ -110,7 +113,6 @@ public class DetailedPerftDebug
             var blackUndo = position.MakeMove(targetMove.Value);
             
             // Count white's responses
-            Span<Move> whiteMoves = stackalloc Move[218];
             var whiteList = new MoveList(whiteMoves);
             _moveGenerator.GenerateMoves(position, ref whiteList);
             

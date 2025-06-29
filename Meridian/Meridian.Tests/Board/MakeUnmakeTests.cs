@@ -23,6 +23,8 @@ public sealed class MakeUnmakeTests
             "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8"
         };
         
+        Span<Move> moveBuffer = stackalloc Move[218];
+        
         foreach (var fen in positions)
         {
             var positionResult = Position.FromFen(fen);
@@ -38,7 +40,6 @@ public sealed class MakeUnmakeTests
             var originalHalfmove = position.HalfmoveClock;
             
             // Generate all legal moves
-            Span<Move> moveBuffer = stackalloc Move[218];
             var moves = new MoveList(moveBuffer);
             _moveGenerator.GenerateMoves(position, ref moves);
             

@@ -5,133 +5,312 @@ using Meridian.Core.Board;
 
 namespace Meridian.Core.Search;
 
+/// <summary>
+/// Manages a pool of search threads for Lazy SMP parallel search
+/// </summary>
 public sealed class ThreadPool : IDisposable
 {
-    private readonly List<SearchThread> _threads;
-    private readonly TranspositionTable _transpositionTable;
-    private readonly ConcurrentBag<SearchResult> _results;
+    private readonly ThreadData[] _threads;
+    private readonly TranspositionTable _sharedTT;
+    private Move _globalBestMove;  // Not volatile - protected by _bestMoveLock
+    private volatile int _globalBestScore;
+    private Position _searchPosition = null!;
+    private SearchLimits _searchLimits = null!;
     private readonly object _bestMoveLock = new();
-    private Position? _rootPosition;
-    private SearchLimits? _limits;
-    private volatile bool _stopSearch;
-    private Move _bestMove = Move.None;
-    private int _bestScore;
-    private ThreadData? _bestThreadData;
     
-    public int ThreadCount => _threads.Count;
-    public Move BestMove => _bestMove;
-    public int BestScore => _bestScore;
-    public ThreadData? BestThreadData => _bestThreadData;
+    /// <summary>
+    /// Callback invoked when search makes progress
+    /// </summary>
+    public Action? OnProgressUpdate { get; set; }
     
-    public ThreadPool(TranspositionTable transpositionTable, int threadCount = 1)
+    public ThreadPool(int threadCount, int ttSizeMb)
     {
-        _transpositionTable = transpositionTable;
-        _threads = new List<SearchThread>(threadCount);
-        _results = new ConcurrentBag<SearchResult>();
+        if (threadCount < 1 || threadCount > 256)
+            throw new ArgumentException("Thread count must be between 1 and 256", nameof(threadCount));
+            
+        // Console.WriteLine($"info string Creating ThreadPool with {threadCount} threads");
+        _sharedTT = new TranspositionTable(ttSizeMb);
+        _threads = new ThreadData[threadCount];
         
-        for (var i = 0; i < threadCount; i++)
+        // Create thread data for each thread
+        for (int i = 0; i < threadCount; i++)
         {
-            _threads.Add(new SearchThread(i, _transpositionTable, this));
+            _threads[i] = new ThreadData
+            {
+                ThreadId = i,
+                SearchEngine = new SearchEngine(_sharedTT)
+            };
         }
     }
     
+    /// <summary>
+    /// Starts parallel search on all threads
+    /// </summary>
     public void StartSearch(Position position, SearchLimits limits)
     {
-        _rootPosition = position;
-        _limits = limits;
-        _stopSearch = false;
-        _bestMove = Move.None;
-        _bestScore = -SearchConstants.Infinity;
-        _bestThreadData = null;
+        _globalBestMove = Move.None;
+        _globalBestScore = -SearchConstants.Infinity;
+        _searchPosition = new Position(position);
+        _searchLimits = limits;
         
-        while (_results.TryTake(out _)) { }
+        // Console.WriteLine($"info string StartSearch called with {_threads.Length} threads");
         
-        _transpositionTable.NewSearch();
+        // Clear shared TT age for new search
+        _sharedTT.NewSearch();
         
-        // Start all threads
-        for (var i = 0; i < _threads.Count; i++)
-        {
-            var thread = _threads[i];
-            var depthOffset = i == 0 ? 0 : 1 + (i % 4); // Helper threads search different depths
-            thread.StartSearch(position, limits, depthOffset);
-        }
-    }
-    
-    public void StopSearch()
-    {
-        _stopSearch = true;
+        // Reset all threads
         foreach (var thread in _threads)
         {
-            thread.Stop();
+            thread.Reset();
         }
-    }
-    
-    public void WaitForSearchComplete()
-    {
-        foreach (var thread in _threads)
+        
+        // Start search on all threads
+        for (int i = 0; i < _threads.Length; i++)
         {
-            thread.WaitForSearchComplete();
-        }
-    }
-    
-    public void UpdateBestMove(Move move, int score, ThreadData threadData)
-    {
-        lock (_bestMoveLock)
-        {
-            if (score > _bestScore || (_bestMove == Move.None && move != Move.None))
+            var threadData = _threads[i];
+            threadData.IsSearching = true;
+            
+            // Console.WriteLine($"info string Starting thread {i}");
+            
+            // All threads run asynchronously
+            var localThreadData = threadData; // Capture by value
+            var localThreadIndex = i; // Capture by value
+            var thread = new Thread(() => SearchThread(localThreadData))
             {
-                _bestMove = move;
-                _bestScore = score;
-                _bestThreadData = threadData;
+                IsBackground = true,
+                Name = $"Search Thread {localThreadIndex}"
+            };
+            threadData.Thread = thread;
+            thread.Start();
+            // Console.WriteLine($"info string Thread {i} started");
+        }
+    }
+    
+    /// <summary>
+    /// Waits for search to complete and returns best move
+    /// </summary>
+    public Move WaitForBestMove()
+    {
+        // Wait for all threads to finish (including thread 0)
+        for (int i = 0; i < _threads.Length; i++)
+        {
+            _threads[i].Thread?.Join();
+        }
+        
+        // Console.WriteLine($"info string WaitForBestMove returning {_globalBestMove.ToUci()}");
+        return _globalBestMove;
+    }
+    
+    /// <summary>
+    /// Stops all search threads
+    /// </summary>
+    public void StopAll()
+    {
+        // Signal all search engines to stop
+        foreach (var thread in _threads)
+        {
+            thread.SearchEngine.Stop();
+        }
+        
+        // Wait for threads to stop
+        for (int i = 1; i < _threads.Length; i++)
+        {
+            _threads[i].Thread?.Join(100);
+        }
+    }
+    
+    /// <summary>
+    /// Gets aggregated search information
+    /// </summary>
+    public SearchInfo GetAggregatedInfo()
+    {
+        var info = new SearchInfo();
+        
+        long totalNodes = 0;
+        int maxDepth = 0;
+        int maxSelDepth = 0;
+        int maxTime = 0;
+        
+        foreach (var thread in _threads)
+        {
+            // Include all threads, even if just started
+            totalNodes += thread.Nodes;
+            if (thread.CompletedDepth > 0)
+            {
+                // For depth reporting, use the main thread's depth if available
+                if (thread.ThreadId == 0)
+                {
+                    maxDepth = thread.CompletedDepth;
+                }
+                else if (maxDepth == 0)
+                {
+                    maxDepth = Math.Max(maxDepth, thread.CompletedDepth);
+                }
+            }
+            maxSelDepth = Math.Max(maxSelDepth, thread.SelDepth);
+            if (thread.SearchEngine.SearchInfo.Time > 0)
+            {
+                maxTime = Math.Max(maxTime, thread.SearchEngine.SearchInfo.Time);
             }
         }
+        
+        info.Nodes = totalNodes;
+        info.Depth = maxDepth;
+        info.SelectiveDepth = maxSelDepth > 0 ? maxSelDepth : 1;
+        info.Score = _globalBestScore;
+        info.Time = maxTime;
+        
+        // Copy PV from main thread if available - without modifying original
+        if (_threads.Length > 0)
+        {
+            var mainPv = _threads[0].SearchEngine.SearchInfo.PrincipalVariation;
+            if (!mainPv.IsEmpty)
+            {
+                // Create a copy of the PV without dequeuing
+                foreach (var move in mainPv)
+                {
+                    info.PrincipalVariation.Enqueue(move);
+                }
+            }
+        }
+        
+        return info;
     }
     
-    public bool IsSearchStopped() => _stopSearch;
+    /// <summary>
+    /// Gets the maximum selective depth across all threads
+    /// </summary>
+    public int GetMaxSelectiveDepth()
+    {
+        int maxSelDepth = 0;
+        foreach (var thread in _threads)
+        {
+            maxSelDepth = Math.Max(maxSelDepth, thread.SelDepth);
+        }
+        return maxSelDepth > 0 ? maxSelDepth : 1;
+    }
+    
+    /// <summary>
+    /// Gets the transposition table usage in permille
+    /// </summary>
+    public int GetHashfull()
+    {
+        return _sharedTT.Usage();
+    }
+    
+    /// <summary>
+    /// Resizes the shared transposition table
+    /// </summary>
+    public void ResizeTranspositionTable(int sizeMb)
+    {
+        // Note: This is not thread-safe during search
+        // Should only be called when not searching
+        foreach (var thread in _threads)
+        {
+            thread.SearchEngine.SetTranspositionTable(new TranspositionTable(sizeMb));
+        }
+    }
+    
+    private void SearchThread(ThreadData threadData)
+    {
+        try
+        {
+            // Console.WriteLine($"info string Thread {threadData.ThreadId} starting search");
+            var position = new Position(_searchPosition);
+            var limits = new SearchLimits
+            {
+                Depth = _searchLimits.Depth,
+                MoveTime = _searchLimits.MoveTime,
+                Infinite = _searchLimits.Infinite,
+                WhiteTime = _searchLimits.WhiteTime,
+                BlackTime = _searchLimits.BlackTime,
+                WhiteIncrement = _searchLimits.WhiteIncrement,
+                BlackIncrement = _searchLimits.BlackIncrement,
+                MovesToGo = _searchLimits.MovesToGo
+            };
+            
+            // Adjust depth for helper threads
+            if (threadData.ThreadId > 0 && limits.Depth > 0)
+            {
+                var adjustment = threadData.DepthAdjustment;
+                // Ensure we don't exceed safe limits - leave 20 ply margin for extensions
+                limits.Depth = Math.Min(limits.Depth + adjustment, SearchConstants.MaxDepth - 20);
+            }
+            
+            // Configure search engine callbacks
+            threadData.SearchEngine.OnSearchProgress = (info) =>
+            {
+                // Update thread's current state
+                var depthChanged = info.Depth > threadData.CompletedDepth;
+                threadData.CompletedDepth = info.Depth;
+                threadData.BestScore = info.Score;
+                
+                // Signal progress update if depth changed
+                if (depthChanged)
+                {
+                    OnProgressUpdate?.Invoke();
+                }
+                
+                // Update global best move if this thread found better
+                // For main thread (id 0), always update if we have a move
+                if (threadData.ThreadId == 0 && !info.PrincipalVariation.IsEmpty)
+                {
+                    lock (_bestMoveLock)
+                    {
+                        if (info.PrincipalVariation.TryPeek(out var bestMove))
+                        {
+                            _globalBestMove = bestMove;
+                            _globalBestScore = info.Score;
+                        }
+                    }
+                }
+                else if (info.Score > _globalBestScore && !info.PrincipalVariation.IsEmpty)
+                {
+                    lock (_bestMoveLock)
+                    {
+                        if (info.Score > _globalBestScore)
+                        {
+                            _globalBestScore = info.Score;
+                            if (info.PrincipalVariation.TryPeek(out var bestMove))
+                            {
+                                _globalBestMove = bestMove;
+                            }
+                        }
+                    }
+                }
+            };
+            
+            // Set thread-specific parameters
+            if (threadData.ThreadId > 0)
+            {
+                threadData.SearchEngine.SetHelperThreadParameters(
+                    threadData.ThreadId,
+                    threadData.AspirationWindowAdjustment
+                );
+            }
+            
+            // Start search
+            var bestMove = threadData.SearchEngine.StartSearch(position, limits);
+            threadData.BestMove = bestMove;
+            
+            // Update global best move from main thread's result
+            if (threadData.ThreadId == 0 && bestMove != Move.None)
+            {
+                lock (_bestMoveLock)
+                {
+                    _globalBestMove = bestMove;
+                }
+            }
+            // Console.WriteLine($"info string Thread {threadData.ThreadId} finished search, best move: {bestMove.ToUci()}");
+        }
+        finally
+        {
+            threadData.IsSearching = false;
+        }
+    }
     
     public void Dispose()
     {
-        StopSearch();
-        foreach (var thread in _threads)
-        {
-            thread.Dispose();
-        }
-        _threads.Clear();
-    }
-    
-    public void SetThreadCount(int count)
-    {
-        if (count == _threads.Count)
-            return;
-            
-        // Stop and dispose existing threads
-        StopSearch();
-        foreach (var thread in _threads)
-        {
-            thread.Dispose();
-        }
-        _threads.Clear();
-        
-        // Create new threads
-        for (var i = 0; i < count; i++)
-        {
-            _threads.Add(new SearchThread(i, _transpositionTable, this));
-        }
-    }
-}
-
-public sealed class SearchResult
-{
-    public Move BestMove { get; }
-    public int Score { get; }
-    public int Depth { get; }
-    public ThreadData ThreadData { get; }
-    
-    public SearchResult(Move bestMove, int score, int depth, ThreadData threadData)
-    {
-        BestMove = bestMove;
-        Score = score;
-        Depth = depth;
-        ThreadData = threadData;
+        StopAll();
     }
 }

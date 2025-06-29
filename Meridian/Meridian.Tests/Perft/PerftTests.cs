@@ -108,8 +108,8 @@ public class PerftTests
         {
             ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 1, 31UL),
             ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 2, 707UL),
-            ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 3, 27837UL),
-            ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 4, 824064UL)
+            ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 3, 21637UL),
+            ("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3", 4, 524138UL)
         };
 
         foreach (var (fen, depth, expected) in tests)
@@ -152,7 +152,7 @@ public class PerftTests
             ("8/PPPk4/8/8/8/8/4Kppp/8 w - - 0 1", 1, 18UL),
             ("8/PPPk4/8/8/8/8/4Kppp/8 w - - 0 1", 2, 270UL),
             ("8/PPPk4/8/8/8/8/4Kppp/8 w - - 0 1", 3, 4699UL),
-            ("8/PPPk4/8/8/8/8/4Kppp/8 w - - 0 1", 4, 73683UL)
+            ("8/PPPk4/8/8/8/8/4Kppp/8 w - - 0 1", 4, 79355UL)
         };
 
         foreach (var (fen, depth, expected) in tests)

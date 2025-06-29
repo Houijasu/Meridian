@@ -2,7 +2,7 @@
 
 using Meridian.Core.Protocol.UCI;
 
-namespace Meridian.CLI;
+namespace Meridian;
 
 public class Program
 {

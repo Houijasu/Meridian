@@ -216,9 +216,9 @@ public sealed class MoveGenerator
         
         var rank7 = us == Color.White ? AttackTables.Rank7 : AttackTables.Rank2;
         var rank3 = us == Color.White ? AttackTables.Rank3 : AttackTables.Rank6;
-        var direction = us == Color.White ? 8 : -8;
-        var captureLeft = us == Color.White ? 7 : -9;
-        var captureRight = us == Color.White ? 9 : -7;
+        var pushDirection = us == Color.White ? 8 : -8;
+        var captureLeftDirection = us == Color.White ? 7 : -9;
+        var captureRightDirection = us == Color.White ? 9 : -7;
         
         var promotionPawns = pawns & rank7;
         var nonPromotionPawns = pawns & ~rank7;
@@ -233,8 +233,8 @@ public sealed class MoveGenerator
                 ((singlePushes & rank3) << 8) & empty :
                 ((singlePushes & rank3) >> 8) & empty;
                 
-            GeneratePawnPushes(singlePushes, -direction, MoveType.None, ref moves);
-            GeneratePawnPushes(doublePushes, -direction * 2, MoveType.DoublePush, ref moves);
+            GeneratePawnPushes(singlePushes, pushDirection, MoveType.None, ref moves);
+            GeneratePawnPushes(doublePushes, pushDirection * 2, MoveType.DoublePush, ref moves);
             
             var leftCaptures = us == Color.White ?
                 ((nonPromotionPawns & AttackTables.NotFileA) << 7) & enemies :
@@ -244,16 +244,12 @@ public sealed class MoveGenerator
                 ((nonPromotionPawns & AttackTables.NotFileH) << 9) & enemies :
                 ((nonPromotionPawns & AttackTables.NotFileA) >> 7) & enemies;
                 
-            GeneratePawnCaptures(leftCaptures, -captureLeft, ref moves);
-            GeneratePawnCaptures(rightCaptures, -captureRight, ref moves);
+            GeneratePawnCaptures(leftCaptures, captureLeftDirection, ref moves);
+            GeneratePawnCaptures(rightCaptures, captureRightDirection, ref moves);
             
             if (_position.EnPassantSquare != Square.None)
             {
                 var epTarget = _position.EnPassantSquare.ToBitboard();
-                // Find our pawns that can capture on the en passant square
-                // We need to check which of OUR pawns can attack the en passant square
-                // This means we need pawn attacks FROM the en passant square by the OPPONENT
-                // to find squares where OUR pawns could be
                 if ((AttackTables.PawnAttacks(_position.EnPassantSquare, them) & nonPromotionPawns).IsNotEmpty())
                 {
                     var attackers = AttackTables.PawnAttacks(_position.EnPassantSquare, them) & nonPromotionPawns;
@@ -275,7 +271,7 @@ public sealed class MoveGenerator
                 (promotionPawns << 8) & empty :
                 (promotionPawns >> 8) & empty;
                 
-            GeneratePromotions(promoPushes, -direction, MoveType.None, ref moves);
+            GeneratePromotions(promoPushes, pushDirection, MoveType.None, ref moves);
             
             var promoLeftCaptures = us == Color.White ?
                 ((promotionPawns & AttackTables.NotFileA) << 7) & enemies :
@@ -285,8 +281,8 @@ public sealed class MoveGenerator
                 ((promotionPawns & AttackTables.NotFileH) << 9) & enemies :
                 ((promotionPawns & AttackTables.NotFileA) >> 7) & enemies;
                 
-            GeneratePromotionCaptures(promoLeftCaptures, -captureLeft, ref moves);
-            GeneratePromotionCaptures(promoRightCaptures, -captureRight, ref moves);
+            GeneratePromotionCaptures(promoLeftCaptures, captureLeftDirection, ref moves);
+            GeneratePromotionCaptures(promoRightCaptures, captureRightDirection, ref moves);
         }
     }
     
@@ -297,7 +293,7 @@ public sealed class MoveGenerator
         while (pushes.IsNotEmpty())
         {
             var to = (Square)pushes.GetLsbIndex();
-            var from = (Square)((int)to + direction);
+            var from = (Square)((int)to - direction);
             
             if ((_pinned & from.ToBitboard()).IsEmpty() || 
                 IsMoveLegalWhenPinned(from, to))
@@ -316,7 +312,7 @@ public sealed class MoveGenerator
         while (captures.IsNotEmpty())
         {
             var to = (Square)captures.GetLsbIndex();
-            var from = (Square)((int)to + direction);
+            var from = (Square)((int)to - direction);
             var captured = _position.GetPiece(to);
             
             if ((_pinned & from.ToBitboard()).IsEmpty() || 
@@ -336,7 +332,7 @@ public sealed class MoveGenerator
         while (pushes.IsNotEmpty())
         {
             var to = (Square)pushes.GetLsbIndex();
-            var from = (Square)((int)to + direction);
+            var from = (Square)((int)to - direction);
             
             if ((_pinned & from.ToBitboard()).IsEmpty() || 
                 IsMoveLegalWhenPinned(from, to))
@@ -355,7 +351,7 @@ public sealed class MoveGenerator
         while (captures.IsNotEmpty())
         {
             var to = (Square)captures.GetLsbIndex();
-            var from = (Square)((int)to + direction);
+            var from = (Square)((int)to - direction);
             var captured = _position.GetPiece(to);
             
             if ((_pinned & from.ToBitboard()).IsEmpty() || 
@@ -617,12 +613,12 @@ public sealed class MoveGenerator
     private bool IsMoveLegal(Move move)
     {
         var us = _position.SideToMove;
+        var them = us == Color.White ? Color.Black : Color.White;
         
         // Make the move temporarily
         var undoInfo = _position.MakeMove(move);
         
-        // After making the move, we need to check if OUR king (not the opponent's) is attacked
-        // The side to move has switched, so we look for our king and check if it's attacked by the current side to move
+        // After making the move, we need to check if OUR king is attacked by the opponent
         var ourKing = _position.GetBitboard(us, PieceType.King);
         if (ourKing.IsEmpty())
         {
@@ -632,7 +628,7 @@ public sealed class MoveGenerator
         }
         
         var kingSquare = (Square)ourKing.GetLsbIndex();
-        var isLegal = !IsSquareAttacked(_position, kingSquare, _position.SideToMove);
+        var isLegal = !IsSquareAttacked(_position, kingSquare, them);
         
         // Restore the position
         _position.UnmakeMove(move, undoInfo);

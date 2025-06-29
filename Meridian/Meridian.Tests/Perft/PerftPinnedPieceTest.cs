@@ -27,6 +27,8 @@ public class PerftPinnedPieceTest
             ("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 1", 1)
         };
         
+        Span<Move> moveBuffer = stackalloc Move[218];
+        
         foreach (var (fen, depth) in tests)
         {
             var positionResult = Position.FromFen(fen);
@@ -35,7 +37,6 @@ public class PerftPinnedPieceTest
             var position = positionResult.Value;
             
             // Generate moves
-            Span<Move> moveBuffer = stackalloc Move[218];
             var moves = new MoveList(moveBuffer);
             _moveGenerator.GenerateMoves(position, ref moves);
             

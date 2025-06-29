@@ -28,13 +28,15 @@ public class InvestigatePawnMoves
             ("g2", "g4", Square.G3)
         };
         
+        Span<Move> moveBuffer = stackalloc Move[218];
+        Span<Move> blackMoves = stackalloc Move[218];
+        
         foreach (var (from, to, expectedEp) in doublePawnPushes)
         {
             var fromSquare = SquareExtensions.ParseSquare(from);
             var toSquare = SquareExtensions.ParseSquare(to);
             
             // Find the move
-            Span<Move> moveBuffer = stackalloc Move[218];
             var moves = new MoveList(moveBuffer);
             _moveGenerator.GenerateMoves(position, ref moves);
             
@@ -63,7 +65,6 @@ public class InvestigatePawnMoves
             if (position.EnPassantSquare != Square.None)
             {
                 // Generate black moves
-                Span<Move> blackMoves = stackalloc Move[218];
                 var blackMovesList = new MoveList(blackMoves);
                 _moveGenerator.GenerateMoves(position, ref blackMovesList);
                 

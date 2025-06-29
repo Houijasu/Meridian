@@ -4,112 +4,88 @@ using Meridian.Core.Board;
 
 namespace Meridian.Core.Search;
 
+/// <summary>
+/// Encapsulates per-thread state for parallel search
+/// </summary>
 public sealed class ThreadData
 {
-    public int ThreadId { get; }
-    public int RootDepth { get; set; }
-    internal Move[] PvTable { get; }
-    internal int[] PvLength { get; }
-    internal Move[,] KillerMoves { get; }
-    internal int[,,] HistoryScores { get; }
-    public SearchInfo Info { get; }
-    internal volatile bool ShouldStop;
+    /// <summary>
+    /// Unique thread identifier (0 = main thread)
+    /// </summary>
+    public int ThreadId { get; init; }
     
-    public ThreadData(int threadId)
+    /// <summary>
+    /// Thread's own search engine instance
+    /// </summary>
+    public SearchEngine SearchEngine { get; init; } = null!;
+    
+    /// <summary>
+    /// The actual thread object
+    /// </summary>
+    public Thread? Thread { get; set; }
+    
+    /// <summary>
+    /// Indicates if this thread is currently searching
+    /// </summary>
+    public bool IsSearching { get; set; }
+    
+    /// <summary>
+    /// The best move found by this thread
+    /// </summary>
+    public Move BestMove { get; set; }
+    
+    /// <summary>
+    /// The score of the best move
+    /// </summary>
+    public int BestScore { get; set; }
+    
+    /// <summary>
+    /// Maximum depth reached by this thread
+    /// </summary>
+    public int CompletedDepth { get; set; }
+    
+    /// <summary>
+    /// Nodes searched by this thread
+    /// </summary>
+    public long Nodes => SearchEngine.SearchInfo.Nodes;
+    
+    /// <summary>
+    /// Selective depth reached
+    /// </summary>
+    public int SelDepth => SearchEngine.SelectiveDepth;
+    
+    /// <summary>
+    /// Gets depth adjustment for this thread
+    /// </summary>
+    public int DepthAdjustment => ThreadId switch
     {
-        ThreadId = threadId;
-        PvTable = new Move[SearchConstants.MaxDepth * SearchConstants.MaxDepth];
-        PvLength = new int[SearchConstants.MaxDepth];
-        KillerMoves = new Move[SearchConstants.MaxDepth, 2];
-        HistoryScores = new int[2, 64, 64]; // [color, from, to]
-        Info = new SearchInfo();
-    }
+        0 => 0,    // Main thread: normal depth
+        1 => 1,    // Helper 1: depth + 1
+        2 => 0,    // Helper 2: normal depth, wider window
+        3 => 2,    // Helper 3: depth + 2
+        _ => ThreadId % 3  // Others: cycle through 0, 1, 2
+    };
     
-    public void Clear()
+    /// <summary>
+    /// Gets aspiration window adjustment for this thread
+    /// </summary>
+    public int AspirationWindowAdjustment => ThreadId switch
     {
-        Array.Clear(PvTable);
-        Array.Clear(PvLength);
-        Array.Clear(KillerMoves);
-        Array.Clear(HistoryScores);
-        Info.Clear();
-        ShouldStop = false;
-        RootDepth = 0;
-    }
+        0 => 0,     // Main thread: normal window
+        1 => 0,     // Helper 1: normal window
+        2 => 100,   // Helper 2: wider window
+        3 => 0,     // Helper 3: normal window
+        _ => (ThreadId % 2) * 50  // Others: alternate between normal and wider
+    };
     
-    public void UpdatePrincipalVariation(Move move, int ply)
+    /// <summary>
+    /// Resets thread state for new search
+    /// </summary>
+    public void Reset()
     {
-        // Get the starting index in the 1D array for the current ply's PV
-        var pvIndex = ply * SearchConstants.MaxDepth;
-        // Get the starting index for the child ply's PV
-        var nextPvIndex = (ply + 1) * SearchConstants.MaxDepth;
-        
-        // The first move of the PV for this node is the best move we just found
-        PvTable[pvIndex] = move;
-        
-        // The rest of the PV is the PV from the child node
-        var childPvLength = PvLength[ply + 1];
-        if (childPvLength > 0)
-        {
-            // Copy the child's PV into the current PV, right after the first move
-            Array.Copy(PvTable, nextPvIndex, PvTable, pvIndex + 1, childPvLength);
-        }
-        
-        // The length of the current PV is 1 (for our move) + the length of the child's PV
-        PvLength[ply] = childPvLength + 1;
-        
-        // Update the user-facing SearchInfo only at the root of the search
-        if (ply == 0)
-        {
-            Info.PrincipalVariation.Clear();
-            for (var i = 0; i < PvLength[0]; i++)
-            {
-                Info.PrincipalVariation.Add(PvTable[i]);
-            }
-        }
-    }
-    
-    public void UpdateKillerMoves(Move move, int ply)
-    {
-        if (ply < SearchConstants.MaxDepth && !move.IsCapture)
-        {
-            if (KillerMoves[ply, 0] != move)
-            {
-                KillerMoves[ply, 1] = KillerMoves[ply, 0];
-                KillerMoves[ply, 0] = move;
-            }
-        }
-    }
-    
-    public bool IsKillerMove(Move move, int ply)
-    {
-        return ply < SearchConstants.MaxDepth && 
-               (move == KillerMoves[ply, 0] || move == KillerMoves[ply, 1]);
-    }
-    
-    
-    public void UpdateHistoryScore(Move move, int bonus, Color color)
-    {
-        if (move.IsCapture || move.IsPromotion)
-            return;
-            
-        var colorIndex = color == Color.White ? 0 : 1;
-        ref var score = ref HistoryScores[colorIndex, (int)move.From, (int)move.To];
-        
-        // Improved history update with better scaling
-        var absBonus = Math.Abs(bonus);
-        var scaledBonus = bonus - score * absBonus / 32768;
-        score += scaledBonus;
-        
-        // Clamp to prevent overflow
-        score = Math.Clamp(score, -32768, 32768);
-    }
-    
-    public int GetHistoryScore(Move move, Color color)
-    {
-        if (move.IsCapture || move.IsPromotion)
-            return 0;
-            
-        var colorIndex = color == Color.White ? 0 : 1;
-        return HistoryScores[colorIndex, (int)move.From, (int)move.To];
+        BestMove = Move.None;
+        BestScore = -SearchConstants.Infinity;
+        CompletedDepth = 0;
+        SearchEngine.SearchInfo.Clear();
     }
 }

@@ -392,3 +392,22 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 .idea/
+
+# Opencode tool files
+.opencode/
+opencodetmp/
+
+# Git worktrees
+worktrees/
+
+# Claude agent settings
+.claude/
+
+# Broken files
+*.*.broken
+
+# Test Results
+Meridian/Meridian.Tests/TestResults/
+
+# Rider User Settings
+*.csproj.user

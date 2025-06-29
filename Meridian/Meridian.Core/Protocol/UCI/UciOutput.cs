@@ -47,4 +47,11 @@ public static class UciOutput
             option += $" max {max}";
         Console.WriteLine(option);
     }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void WriteLine(string message)
+    {
+        Console.WriteLine(message);
+        Console.Out.Flush();
+    }
 }

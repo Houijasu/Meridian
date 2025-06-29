@@ -9,12 +9,11 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <PublishReadyToRun>true</PublishReadyToRun>
-    <PublishTrimmed>true</PublishTrimmed>
-    <TrimMode>link</TrimMode>
+    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Meridian.Core\Meridian.Core.csproj" />
+    <ProjectReference Include="..\..\Meridian.Core\Meridian.Core.csproj" />
   </ItemGroup>
 
 </Project>

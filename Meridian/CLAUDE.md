@@ -4,23 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Meridian is a high-performance C# UCI-compliant chess engine using .NET 9.0, focused on becoming the best chess engine in the world. The project emphasizes bitboard-based move generation, efficient search algorithms, and strict UCI protocol compliance.
+Meridian is a high-performance C# UCI-compliant chess engine using .NET 9.0, focused on becoming a competitive chess engine. The project emphasizes bitboard-based move generation, efficient search algorithms, and strict UCI protocol compliance.
 
 ## Essential Commands
 
 ### Build and Test
 ```bash
 # Build the project
-dotnet build
+dotnet build Meridian/Meridian.sln
 
 # Run all tests
-dotnet test
+dotnet test Meridian/Meridian.sln
 
 # Run specific test categories
 dotnet test --filter "Category=Perft"  # Move generation validation tests
 
 # Run the engine
-dotnet run --project Meridian.CLI
+dotnet run --project Meridian/Meridian/Meridian
 
 # Create optimized release build
 dotnet publish -c Release -r win-x64 --self-contained
@@ -61,18 +61,18 @@ dotnet test --filter "Category=Perft"
 
 ### Directory Structure
 ```
-src/
+Meridian/
 ├── Meridian.Core/
 │   ├── Board/          # Bitboard, Position, Move structs
 │   ├── MoveGeneration/ # Move generator, magic bitboards
 │   ├── Search/         # Search engine, transposition table
 │   ├── Evaluation/     # Position evaluation
-│   └── UCI/            # UCI protocol implementation
+│   └── Protocol/UCI/   # UCI protocol implementation
 ├── Meridian.Tests/
 │   ├── Perft/          # Move generation correctness
 │   ├── UCI/            # Protocol compliance
 │   └── Search/         # Algorithm validation
-└── Meridian.CLI/
+└── Meridian/
     └── Program.cs      # Entry point
 ```
 
@@ -211,4 +211,13 @@ Or globally in .editorconfig:
 dotnet_diagnostic.CA2225.severity = none
 ```
 
-This engine is in early development. Currently only has basic project structure - implementation of all chess engine components is needed.
+## Current Status
+
+The engine has a complete architecture with:
+- Full bitboard move generation
+- Alpha-beta search with transposition tables
+- Basic evaluation function
+- UCI protocol implementation
+- Comprehensive Perft test suite
+
+Active development focuses on search improvements and evaluation refinement.

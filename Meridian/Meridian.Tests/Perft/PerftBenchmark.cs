@@ -54,6 +54,8 @@ public class PerftBenchmark
         var totalTime = 0.0;
         var totalMoves = 0L;
 
+        Span<Move> moveBuffer = stackalloc Move[218];
+
         foreach (var fen in positions)
         {
             var positionResult = Position.FromFen(fen);
@@ -65,7 +67,6 @@ public class PerftBenchmark
             
             for (var i = 0; i < iterations; i++)
             {
-                Span<Move> moveBuffer = stackalloc Move[218];
                 var moves = new MoveList(moveBuffer);
                 _moveGenerator.GenerateMoves(position, ref moves);
                 totalMoves += moves.Count;
