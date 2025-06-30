@@ -159,129 +159,59 @@ namespace Meridian.Core.Protocol.UCI
             {
                 try
                 {
-                    // Start parallel search on all threads
-                    _threadPool.StartSearch(_position, limits);
+                    var lastDepth = 0;
+                    var lastNodes = 0L;
+                    var lastReportTime = DateTime.UtcNow;
+                    _lastDepthSent = 0;
+                    _lastScoreSent = 0;
+                    _lastPvSent = "";
                     
-                    // Start reporting thread with event-based signaling
-                    var isSearching = true;
-                    var updateSignal = new ManualResetEventSlim(false);
-                    var reportTimer = new System.Threading.Timer(_ => updateSignal.Set(), null, 500, 500);
-                    
-                    // Set up progress callback to signal updates
-                    _threadPool.OnProgressUpdate = () => updateSignal.Set();
-                    
-                    var reportThread = new Thread(() =>
+                    _threadPool.OnProgressUpdate = () =>
                     {
-                        var lastDepth = 0;
-                        var lastScore = int.MinValue;
-                        var lastPv = string.Empty;
-                        var lastNodes = 0L;
-                        var lastReportTime = DateTime.UtcNow;
+                        var info = _threadPool.GetAggregatedInfo();
+                        var now = DateTime.UtcNow;
                         
-                        while (isSearching)
+                        // Send info immediately on depth change or significant node increase
+                        if (info.Depth > lastDepth || (info.Nodes > lastNodes + 10000 && (now - lastReportTime).TotalMilliseconds >= 100))
                         {
-                            // Wait for signal or timeout after 100ms
-                            if (updateSignal.Wait(100))
-                            {
-                                updateSignal.Reset();
-                            }
+                            lastDepth = info.Depth;
+                            lastNodes = info.Nodes;
+                            lastReportTime = now;
                             
-                            if (!isSearching) break;
-                            
-                            var info = _threadPool.GetAggregatedInfo();
-                            
-                            // Copy PV without modifying the original
-                            var pvMoves = new List<Move>();
-                            var tempPv = new Queue<Move>(info.PrincipalVariation);
-                            while (tempPv.Count > 0)
-                            {
-                                pvMoves.Add(tempPv.Dequeue());
-                            }
-                            var pvString = string.Join(" ", pvMoves.Select(m => m.ToUci()));
-                            
-                            // Report if something substantial changed
-                            var now = DateTime.UtcNow;
-                            var depthChanged = info.Depth > lastDepth;
-                            var scoreChanged = info.Score != lastScore;
-                            var pvChanged = pvString != lastPv;
-                            var significantNodeIncrease = info.Nodes > lastNodes + 100000; // 100k nodes
-                            var timeSinceLastReport = (now - lastReportTime).TotalMilliseconds;
-                            
-                            // Always report depth changes immediately, or periodic updates for same depth
-                            var shouldReport = depthChanged || 
-                                             (timeSinceLastReport >= 500 && (scoreChanged || pvChanged || significantNodeIncrease));
-                            
-                            if (shouldReport && info.Depth > 0)
-                            {
-                                // Build info string
-                                var infoStr = $"info depth {info.Depth}";
-                                
-                                // Add selective depth
-                                var selDepth = _threadPool.GetMaxSelectiveDepth();
-                                infoStr += $" seldepth {selDepth}";
-                                
-                                // Add multipv (always 1 for now)
-                                infoStr += " multipv 1";
-                                
-                                // Add score
-                                if (Math.Abs(info.Score) >= SearchConstants.MateInMaxPly)
-                                {
-                                    var mateIn = (SearchConstants.MateScore - Math.Abs(info.Score) + 1) / 2;
-                                    if (info.Score < 0) mateIn = -mateIn;
-                                    infoStr += $" score mate {mateIn}";
-                                }
-                                else
-                                {
-                                    infoStr += $" score cp {info.Score}";
-                                }
-                                
-                                // Calculate hashfull
-                                var hashfull = _threadPool.GetHashfull();
-                                
-                                // Add nodes and performance info
-                                infoStr += $" nodes {info.Nodes} nps {info.NodesPerSecond} hashfull {hashfull} tbhits 0 time {info.Time}";
-                                
-                                // Add principal variation
-                                if (pvMoves.Count > 0)
-                                {
-                                    infoStr += $" pv {pvString}";
-                                }
-                                
-                                UciOutput.WriteLine(infoStr);
-                                
-                                // Update tracking variables
-                                lastDepth = info.Depth;
-                                lastScore = info.Score;
-                                lastPv = pvString;
-                                lastNodes = info.Nodes;
-                                lastReportTime = now;
-                            }
+                            SendInfoString(info);
                         }
-                        
-                        updateSignal.Dispose();
-                    })
-                    {
-                        IsBackground = true
                     };
-                    reportThread.Start();
                     
-                    // Wait for search to complete
-                    var bestMove = _threadPool.WaitForBestMove();
+                    var searchTask = Task.Run(() => _threadPool.StartSearch(_position, limits));
                     
-                    // Stop reporting thread
-                    isSearching = false;
-                    reportTimer.Dispose();
-                    updateSignal.Set(); // Wake up the thread
-                    reportThread.Join(150);
-                    
-                    if (bestMove != Move.None)
+                    // Also poll for updates in case callback doesn't fire
+                    while (!searchTask.IsCompleted)
                     {
-                        UciOutput.WriteLine($"bestmove {bestMove.ToUci()}");
+                        Thread.Sleep(50);
+                        
+                        var info = _threadPool.GetAggregatedInfo();
+                        var now = DateTime.UtcNow;
+                        
+                        if (info.Depth > 0 && (info.Depth > lastDepth || (now - lastReportTime).TotalMilliseconds >= 200))
+                        {
+                            lastDepth = info.Depth;
+                            lastNodes = info.Nodes;
+                            lastReportTime = now;
+                            
+                            SendInfoString(info);
+                        }
                     }
-                    else
+                    
+                    var bestMove = searchTask.Result;
+                    
+                    // Send final info
+                    var finalInfo = _threadPool.GetAggregatedInfo();
+                    if (finalInfo.Depth > 0)
                     {
-                        UciOutput.WriteLine("bestmove 0000");
+                        SendInfoString(finalInfo);
                     }
+                    
+                    UciOutput.WriteLine($"bestmove {bestMove.ToUci()}");
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -295,6 +225,61 @@ namespace Meridian.Core.Protocol.UCI
             };
 
             _searchThread.Start();
+        }
+        
+        private int _lastDepthSent;
+        private int _lastScoreSent;
+        private string _lastPvSent = "";
+        
+        private void SendInfoString(SearchInfo info)
+        {
+            if (info.Depth <= 0) return;
+            
+            var pvMoves = new List<Move>();
+            var tempPv = new Queue<Move>(info.PrincipalVariation);
+            while (tempPv.Count > 0)
+            {
+                pvMoves.Add(tempPv.Dequeue());
+            }
+            var pvString = string.Join(" ", pvMoves.Select(m => m.ToUci()));
+
+            // Check if this is actually new information (ignore hashfull changes)
+            if (info.Depth == _lastDepthSent && info.Score == _lastScoreSent && pvString == _lastPvSent)
+            {
+                return; // Skip duplicate info
+            }
+            
+            _lastDepthSent = info.Depth;
+            _lastScoreSent = info.Score;
+            _lastPvSent = pvString;
+
+            var infoStr = $"info depth {info.Depth}" +
+                          $" seldepth {_threadPool.GetMaxSelectiveDepth()}" +
+                          " multipv 1";
+
+            if (Math.Abs(info.Score) >= SearchConstants.MateInMaxPly)
+            {
+                var mateIn = (SearchConstants.MateScore - Math.Abs(info.Score) + 1) / 2;
+                if (info.Score < 0) mateIn = -mateIn;
+                infoStr += $" score mate {mateIn}";
+            }
+            else
+            {
+                infoStr += $" score cp {info.Score}";
+            }
+
+            infoStr += $" nodes {info.Nodes}" +
+                       $" nps {info.Nps}" +
+                       $" hashfull {_threadPool.GetHashfull()}" +
+                       $" tbhits 0" +
+                       $" time {info.Time}";
+
+            if (pvMoves.Count > 0)
+            {
+                infoStr += $" pv {pvString}";
+            }
+            
+            UciOutput.WriteLine(infoStr);
         }
 
         private void HandleStop()

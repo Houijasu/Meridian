@@ -2,15 +2,17 @@
 
 namespace Meridian.Core.Board;
 
+using System.Runtime.CompilerServices;
+
 public enum PieceType
 {
-    None = 0,
-    Pawn = 1,
-    Knight = 2,
-    Bishop = 3,
-    Rook = 4,
-    Queen = 5,
-    King = 6
+    None,
+    Pawn,
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+    King
 }
 
 public enum Piece
@@ -32,8 +34,17 @@ public enum Piece
 
 public enum Color
 {
-    White = 0,
-    Black = 1
+    White,
+    Black
+}
+
+public static class ColorExtensions
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Color Opponent(this Color color)
+    {
+        return (Color)(1 - (int)color);
+    }
 }
 
 public static class PieceExtensions

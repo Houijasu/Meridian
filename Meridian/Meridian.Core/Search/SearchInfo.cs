@@ -12,6 +12,7 @@ public sealed class SearchInfo
     public int Score { get; set; }
     public long Nodes { get; set; }
     public int Time { get; set; }
+    public long Nps { get; set; }
     public ConcurrentQueue<Move> PrincipalVariation { get; } = new();
     public long PvsReSearches { get; set; }
     public long PvsHits { get; set; }
@@ -25,6 +26,7 @@ public sealed class SearchInfo
         Score = 0;
         Nodes = 0;
         Time = 0;
+        Nps = 0;
         PrincipalVariation.Clear();
         PvsReSearches = 0;
         PvsHits = 0;

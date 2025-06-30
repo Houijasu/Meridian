@@ -16,7 +16,7 @@ public class TranspositionTableRootNodeTest
         // This test reproduces the issue where setting threads to 20 
         // causes the engine to return "bestmove 0000"
         
-        var engine = new SearchEngine(128);
+        var engine = new SearchEngine(new TranspositionTable(128), new SearchData(), new int[2, 64, 64]);
         var position = Position.StartingPosition();
         
         // First search - this populates the TT
@@ -54,7 +54,7 @@ public class TranspositionTableRootNodeTest
     [Fact]
     public void TestMultipleSearchesFromSamePosition_ShouldAlwaysReturnValidMove()
     {
-        var engine = new SearchEngine(128);
+        var engine = new SearchEngine(new TranspositionTable(128), new SearchData(), new int[2, 64, 64]);
         var position = Position.StartingPosition();
         
         // Run multiple searches to ensure TT handling is robust

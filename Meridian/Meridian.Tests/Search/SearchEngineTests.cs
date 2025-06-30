@@ -9,7 +9,7 @@ namespace Meridian.Tests.Search;
 [TestClass]
 public class SearchEngineTests
 {
-    private readonly SearchEngine _searchEngine = new(16); // Use smaller TT for tests
+    private readonly SearchEngine _searchEngine = new(new TranspositionTable(16), new SearchData(), new int[2, 64, 64]); // Use smaller TT for tests
 
     [TestMethod]
     public void Search_FindsMateInOne()

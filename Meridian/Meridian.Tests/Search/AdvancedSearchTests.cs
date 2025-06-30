@@ -9,7 +9,7 @@ namespace Meridian.Tests.Search;
 [TestClass]
 public class AdvancedSearchTests
 {
-    private readonly SearchEngine _searchEngine = new(32); // 32MB for tests
+    private readonly SearchEngine _searchEngine = new(new TranspositionTable(32), new SearchData(), new int[2, 64, 64]); // 32MB for tests
 
     [TestMethod]
     public void NullMovePruning_DetectsZugzwang()
@@ -52,7 +52,7 @@ public class AdvancedSearchTests
         var limits = new SearchLimits { Depth = 8 };
         
         // Search with new engine (has LMR)
-        var lmrEngine = new SearchEngine(16);
+        var lmrEngine = new SearchEngine(new TranspositionTable(16), new SearchData(), new int[2, 64, 64]);
         lmrEngine.StartSearch(position, limits);
         var lmrNodes = lmrEngine.SearchInfo.Nodes;
         

@@ -25,7 +25,7 @@ public class SimulateThreadChangeScenario
         // 2. Simulate thread count change (which doesn't clear TT)
         // 3. Search again from same position
         
-        var engine = new SearchEngine(128);
+        var engine = new SearchEngine(new TranspositionTable(128), new SearchData(), new int[2, 64, 64]);
         var position = Position.StartingPosition();
         
         // First search - depth 20
