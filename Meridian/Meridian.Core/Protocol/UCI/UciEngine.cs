@@ -3,9 +3,11 @@
 using Meridian.Core.Board;
 using Meridian.Core.Search;
 using Meridian.Core.MoveGeneration;
+using Meridian.Core.Evaluation;
 using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.IO;
 
 namespace Meridian.Core.Protocol.UCI
 {
@@ -21,6 +23,29 @@ namespace Meridian.Core.Protocol.UCI
         {
             _position = Position.StartingPosition();
             _threadPool = new Meridian.Core.Search.ThreadPool(_threadCount, _hashSize);
+            
+            // Enable NNUE by default and load the default network
+            Evaluator.UseNNUE = true;
+            var defaultNNUEPath = "networks/obsidian.nnue";
+            if (File.Exists(defaultNNUEPath))
+            {
+                if (Evaluator.LoadNNUE(defaultNNUEPath))
+                {
+                    UciOutput.WriteLine($"info string NNUE loaded from {defaultNNUEPath}");
+                    // Initialize NNUE accumulator for the starting position
+                    Evaluator.InitializeNNUE(_position);
+                }
+                else
+                {
+                    UciOutput.WriteLine($"info string Failed to load NNUE from {defaultNNUEPath}");
+                    Evaluator.UseNNUE = false;
+                }
+            }
+            else
+            {
+                UciOutput.WriteLine($"info string NNUE file not found: {defaultNNUEPath}");
+                Evaluator.UseNNUE = false;
+            }
         }
 
         public void Dispose()
@@ -82,6 +107,8 @@ namespace Meridian.Core.Protocol.UCI
             UciOutput.WriteLine("");
             UciOutput.WriteLine("option name Hash type spin default 128 min 1 max 2048");
             UciOutput.WriteLine("option name Threads type spin default 1 min 1 max 128");
+            UciOutput.WriteLine("option name UseNNUE type check default true");
+            UciOutput.WriteLine("option name NNUEPath type string default networks/obsidian.nnue");
             UciOutput.WriteLine("uciok");
         }
 
@@ -93,6 +120,7 @@ namespace Meridian.Core.Protocol.UCI
         private void HandleNewGame()
         {
             _position = Position.StartingPosition();
+            Evaluator.InitializeNNUE(_position);
             _threadPool.ResizeTranspositionTable(_hashSize);
         }
 
@@ -106,6 +134,8 @@ namespace Meridian.Core.Protocol.UCI
             if (parts[1] == "startpos")
             {
                 _position = Position.StartingPosition();
+                // Initialize NNUE for the new position
+                Evaluator.InitializeNNUE(_position);
             }
             else if (parts[1] == "fen")
             {
@@ -128,6 +158,9 @@ namespace Meridian.Core.Protocol.UCI
             {
                 return;
             }
+            
+            // Initialize NNUE for the new position
+            Evaluator.InitializeNNUE(_position);
 
             var movesIdx = Array.IndexOf(parts, "moves");
             if (movesIdx >= 0 && movesIdx < parts.Length - 1)
@@ -140,6 +173,7 @@ namespace Meridian.Core.Protocol.UCI
                     {
                         return;
                     }
+                    Evaluator.UpdateNNUE(_position, move);
                     _position.MakeMove(move);
                 }
             }
@@ -368,7 +402,8 @@ namespace Meridian.Core.Protocol.UCI
 #pragma warning disable CA1308 // UCI protocol requires lowercase option names
             var optionName = parts[2].ToLowerInvariant();
 #pragma warning restore CA1308
-            var value = parts[4];
+            var valueStart = 4;
+            var value = string.Join(" ", parts.Skip(valueStart));
 
             switch (optionName)
             {
@@ -388,6 +423,32 @@ namespace Meridian.Core.Protocol.UCI
                         // Recreate thread pool with new thread count
                         _threadPool?.Dispose();
                         _threadPool = new Meridian.Core.Search.ThreadPool(_threadCount, _hashSize);
+                    }
+                    break;
+                case "usennue":
+                    if (bool.TryParse(value, out var useNNUE))
+                    {
+                        Evaluator.UseNNUE = useNNUE;
+                    }
+                    break;
+                case "nnuepath":
+                    if (!string.IsNullOrWhiteSpace(value) && value != "<empty>")
+                    {
+                        if (File.Exists(value))
+                        {
+                            if (Evaluator.LoadNNUE(value))
+                            {
+                                UciOutput.WriteLine($"info string NNUE loaded from {value}");
+                            }
+                            else
+                            {
+                                UciOutput.WriteLine($"info string Failed to load NNUE from {value}");
+                            }
+                        }
+                        else
+                        {
+                            UciOutput.WriteLine($"info string NNUE file not found: {value}");
+                        }
                     }
                     break;
                 default:

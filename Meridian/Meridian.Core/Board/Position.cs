@@ -16,6 +16,8 @@ public sealed class Position
     private readonly Bitboard[] _pieceBitboards;
     private readonly Bitboard[] _colorBitboards;
     private readonly Piece[] _board;
+    private readonly int[] _material;
+    private readonly int[] _pieceCount;
     
     public Color SideToMove { get; internal set; }
     public CastlingRights CastlingRights { get; internal set; }
@@ -23,12 +25,26 @@ public sealed class Position
     public int HalfmoveClock { get; internal set; }
     public int FullmoveNumber { get; private set; }
     public ulong ZobristKey { get; internal set; }
+    
+    public int GetMaterial(Color color) => _material[(int)color];
+    
+    private static int GetPieceValue(PieceType type) => type switch
+    {
+        PieceType.Pawn => 100,
+        PieceType.Knight => 320,
+        PieceType.Bishop => 330,
+        PieceType.Rook => 500,
+        PieceType.Queen => 900,
+        _ => 0
+    };
 
     public Position()
     {
         _pieceBitboards = new Bitboard[7];
         _colorBitboards = new Bitboard[2];
         _board = new Piece[64];
+        _material = new int[2];
+        _pieceCount = new int[2];
         EnPassantSquare = Square.None;
     }
 
@@ -39,6 +55,8 @@ public sealed class Position
             _pieceBitboards = new Bitboard[7];
             _colorBitboards = new Bitboard[2];
             _board = new Piece[64];
+            _material = new int[2];
+            _pieceCount = new int[2];
             EnPassantSquare = Square.None;
             return;
         }
@@ -46,10 +64,14 @@ public sealed class Position
         _pieceBitboards = new Bitboard[7];
         _colorBitboards = new Bitboard[2];
         _board = new Piece[64];
+        _material = new int[2];
+        _pieceCount = new int[2];
         
         Array.Copy(other._pieceBitboards, _pieceBitboards, 7);
         Array.Copy(other._colorBitboards, _colorBitboards, 2);
         Array.Copy(other._board, _board, 64);
+        Array.Copy(other._material, _material, 2);
+        Array.Copy(other._pieceCount, _pieceCount, 2);
         
         SideToMove = other.SideToMove;
         CastlingRights = other.CastlingRights;
@@ -95,6 +117,10 @@ public sealed class Position
             _colorBitboards[(int)color] |= square.ToBitboard();
             
             ZobristKey ^= Zobrist.PieceKey(square, piece);
+            
+            // Update material and piece count
+            _material[(int)color] += GetPieceValue(type);
+            _pieceCount[(int)color]++;
         }
     }
 
@@ -111,6 +137,10 @@ public sealed class Position
             _colorBitboards[(int)color] &= ~square.ToBitboard();
             
             ZobristKey ^= Zobrist.PieceKey(square, piece);
+            
+            // Update material and piece count
+            _material[(int)color] -= GetPieceValue(type);
+            _pieceCount[(int)color]--;
         }
     }
 
@@ -340,6 +370,24 @@ public sealed class Position
         // Decrement fullmove number if needed
         if (wasBlacksMove)
             FullmoveNumber--;
+    }
+    
+    public int GetKingSquare(bool white)
+    {
+        var kingBitboard = GetBitboard(white ? Color.White : Color.Black, PieceType.King);
+        return kingBitboard.IsEmpty() ? -1 : kingBitboard.GetLsbIndex();
+    }
+    
+    public Piece? GetPieceAt(int square)
+    {
+        if (square < 0 || square >= 64) return null;
+        var piece = _board[square];
+        return piece == Piece.None ? null : piece;
+    }
+    
+    public int GetPieceCount()
+    {
+        return Bitboard.PopCount(OccupiedSquares());
     }
     
     public void MakeNullMove()

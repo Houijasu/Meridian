@@ -17,23 +17,24 @@ cd Meridian && dotnet test Meridian.sln
 
 # Run specific test categories
 cd Meridian && dotnet test --filter "Category=Perft"  # Critical for move generation changes
+cd Meridian && dotnet test --filter "Category=Search"  # Search algorithm tests
+cd Meridian && dotnet test --filter "Category=UCI"     # UCI protocol compliance
+
+# Run specific test classes
+cd Meridian && dotnet test --filter "FullyQualifiedName~Meridian.Tests.Perft"
 
 # Run the engine
 cd Meridian && dotnet run --project Meridian/Meridian
 
+# Run the engine with UCI commands
+echo -e "uci\nposition startpos\ngo depth 10\nquit" | dotnet run --project Meridian/Meridian
+
 # Create optimized release build
 cd Meridian && dotnet publish -c Release -r linux-x64 --self-contained
-```
 
-## Test Scripts
-
-Several test scripts are available at the root level for engine validation:
-
-```bash
-./quick_test.sh          # Basic depth 10 test from starting position
-./test_deep_search.sh    # Deep search test (depth 25) with complex position
-./test_fix.sh           # Basic deep search test (depth 30)
-./test_fixed.sh         # Deep search test (depth 30) with specific position
+# Build with specific runtime identifiers
+cd Meridian && dotnet publish -c Release -r win-x64 --self-contained
+cd Meridian && dotnet publish -c Release -r osx-x64 --self-contained
 ```
 
 ## Architecture Overview
@@ -41,17 +42,21 @@ Several test scripts are available at the root level for engine validation:
 The project follows a three-tier structure:
 
 1. **Meridian.Core** - Core chess engine library
-   - Bitboard-based board representation
-   - Magic bitboard move generation
+   - Bitboard-based board representation with hardware intrinsics
+   - Magic bitboard move generation for sliding pieces
    - Alpha-beta search with transposition tables
    - UCI protocol implementation
+   - Zero allocation design in performance-critical paths
 
 2. **Meridian.Tests** - Comprehensive test suite
-   - Perft tests for move generation validation
+   - 60+ Perft tests for move generation validation
    - UCI protocol compliance tests
-   - Search algorithm tests
+   - Search algorithm and evaluation tests
+   - Uses both xUnit and MSTest frameworks
 
 3. **Meridian** - Executable entry point
+   - Minimal wrapper around UCI engine
+   - Console application for chess GUI integration
 
 ## Critical Development Rules
 
@@ -64,12 +69,23 @@ The project follows a three-tier structure:
    - Zero allocations in hot paths (search/evaluation)
    - Use make/unmake pattern, never copy board state
    - Target > 1 million NPS on modern hardware
+   - Hardware intrinsics enabled (Popcnt, Tzcnt, Pext)
 
 3. **Code standards**:
    - .NET 9.0 with C# 12.0
    - Nullable reference types enabled
-   - Zero warnings policy
+   - Zero warnings policy (warnings as errors)
    - NO comments unless specifically requested
+   - Private fields prefixed with underscore
+
+## Testing Strategy
+
+The project uses extensive Perft (performance test) validation for move generation correctness. Key test areas:
+
+- **Perft Tests**: Validates move generation against known positions with exact node counts
+- **Search Tests**: Validates search algorithm behavior and move ordering
+- **UCI Tests**: Ensures strict UCI protocol compliance for GUI compatibility
+- **Board Tests**: Validates board manipulation and position setup
 
 ## Important Notes
 
@@ -77,3 +93,4 @@ The project follows a three-tier structure:
 - The project uses unsafe code for performance-critical operations
 - UCI protocol compliance is strict - some GUIs are unforgiving
 - Recent commits show active development on search improvements and bug fixes
+- Code analysis suppressions in .editorconfig are performance-focused (e.g., CA1822 for static members)

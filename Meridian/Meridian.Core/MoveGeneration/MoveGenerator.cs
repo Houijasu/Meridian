@@ -13,6 +13,7 @@ public sealed class MoveGenerator
     private Bitboard _checkMask;
     private bool _inCheck;
     private bool _inDoubleCheck;
+    private readonly Bitboard[] _pinRays = new Bitboard[64];
     
     public unsafe void GenerateMoves(Position position, ref MoveList moves)
     {
@@ -110,6 +111,8 @@ public sealed class MoveGenerator
     
     private void CalculateCheckersAndPinned()
     {
+        Array.Clear(_pinRays);
+        
         var us = _position.SideToMove;
         var them = us == Color.White ? Color.Black : Color.White;
         var king = _position.GetBitboard(us, PieceType.King);
@@ -156,6 +159,8 @@ public sealed class MoveGenerator
             if (Bitboard.PopCount(between) == 1)
             {
                 _pinned |= between;
+                var pinnedSquare = between.GetLsbIndex();
+                _pinRays[pinnedSquare] = GetRayBetween(kingSquare, pinner) | kingSquare.ToBitboard() | pinner.ToBitboard();
             }
             
             potentialPinners = potentialPinners.RemoveLsb();

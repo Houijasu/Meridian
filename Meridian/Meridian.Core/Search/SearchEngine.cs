@@ -193,7 +193,7 @@ public sealed class SearchEngine
             }
         }
 
-        Span<Move> moveBuffer = ply > 15 ? new Move[218] : stackalloc Move[218];
+        Span<Move> moveBuffer = ply > 32 ? new Move[218] : stackalloc Move[218];
         var moves = new MoveList(moveBuffer);
         _moveGenerator.GenerateMoves(position, ref moves);
 
@@ -291,12 +291,12 @@ public sealed class SearchEngine
         if (standPat >= beta) return beta;
         if (standPat > alpha) alpha = standPat;
 
-        Span<Move> moveBuffer = ply > 15 ? new Move[218] : stackalloc Move[218];
+        Span<Move> moveBuffer = ply > 32 ? new Move[218] : stackalloc Move[218];
         var moves = new MoveList(moveBuffer);
         _moveGenerator.GenerateMoves(position, ref moves);
 
         // Create a new list with only captures and promotions
-        Span<Move> captureBuffer = ply > 15 ? new Move[64] : stackalloc Move[64];
+        Span<Move> captureBuffer = ply > 32 ? new Move[64] : stackalloc Move[64];
         var captures = new MoveList(captureBuffer);
         
         for (var i = 0; i < moves.Count; i++)
@@ -332,8 +332,9 @@ public sealed class SearchEngine
     {
         if (moves.Count == 0) return;
 
-        Span<int> scores = moves.Count <= 218 ? stackalloc int[moves.Count] : new int[moves.Count];
+        Span<int> scores = stackalloc int[218];
 
+        // Score all moves
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
@@ -343,20 +344,60 @@ public sealed class SearchEngine
             else scores[i] = GetHistoryScore(move, position.SideToMove);
         }
 
-        for (var i = 0; i < moves.Count - 1; i++)
+        // Use partial insertion sort - we often only need the first few moves
+        // This is O(k*n) where k is the number of moves we actually search
+        var sortLimit = Math.Min(moves.Count, 8); // Sort top 8 moves fully
+        
+        for (var i = 0; i < sortLimit; i++)
         {
             var bestIndex = i;
+            var bestScore = scores[i];
+            
+            // Find the best move in the remaining unsorted portion
             for (var j = i + 1; j < moves.Count; j++)
             {
-                if (scores[j] > scores[bestIndex]) bestIndex = j;
+                if (scores[j] > bestScore)
+                {
+                    bestIndex = j;
+                    bestScore = scores[j];
+                }
             }
+            
+            // Swap if we found a better move
             if (bestIndex != i)
             {
-                var temp = moves[i];
+                var tempMove = moves[i];
                 moves.Set(i, moves[bestIndex]);
-                moves.Set(bestIndex, temp);
-                (scores[i], scores[bestIndex]) = (scores[bestIndex], scores[i]);
+                moves.Set(bestIndex, tempMove);
+                
+                var tempScore = scores[i];
+                scores[i] = scores[bestIndex];
+                scores[bestIndex] = tempScore;
             }
+        }
+        
+        // For the remaining moves, use insertion sort as they're generated
+        // This allows for incremental sorting if we need more moves
+        for (var i = sortLimit; i < moves.Count && i < 32; i++)
+        {
+            var currentMove = moves[i];
+            var currentScore = scores[i];
+            var j = i - 1;
+            
+            // Skip if this move isn't good enough to be in sorted portion
+            if (currentScore <= scores[sortLimit - 1])
+                continue;
+                
+            // Find insertion position
+            while (j >= 0 && scores[j] < currentScore)
+            {
+                moves.Set(j + 1, moves[j]);
+                scores[j + 1] = scores[j];
+                j--;
+            }
+            
+            moves.Set(j + 1, currentMove);
+            scores[j + 1] = currentScore;
         }
     }
 
@@ -364,25 +405,40 @@ public sealed class SearchEngine
     {
         if (captures.Count == 0) return;
 
-        Span<int> scores = captures.Count <= 64 ? stackalloc int[captures.Count] : new int[captures.Count];
+        Span<int> scores = stackalloc int[64];
+        
+        // Score all captures
         for (var i = 0; i < captures.Count; i++)
         {
             scores[i] = ScoreCapture(captures[i], position);
         }
 
-        for (var i = 0; i < captures.Count - 1; i++)
+        // Use partial selection sort for captures - we often prune after just a few
+        var sortLimit = Math.Min(captures.Count, 6);
+        
+        for (var i = 0; i < sortLimit; i++)
         {
             var bestIndex = i;
+            var bestScore = scores[i];
+            
             for (var j = i + 1; j < captures.Count; j++)
             {
-                if (scores[j] > scores[bestIndex]) bestIndex = j;
+                if (scores[j] > bestScore)
+                {
+                    bestIndex = j;
+                    bestScore = scores[j];
+                }
             }
+            
             if (bestIndex != i)
             {
-                var temp = captures[i];
+                var tempMove = captures[i];
                 captures.Set(i, captures[bestIndex]);
-                captures.Set(bestIndex, temp);
-                (scores[i], scores[bestIndex]) = (scores[bestIndex], scores[i]);
+                captures.Set(bestIndex, tempMove);
+                
+                var tempScore = scores[i];
+                scores[i] = scores[bestIndex];
+                scores[bestIndex] = tempScore;
             }
         }
     }

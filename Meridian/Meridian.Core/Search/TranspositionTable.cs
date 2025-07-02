@@ -15,15 +15,19 @@ public enum NodeType
     UpperBound = 2
 }
 
-[StructLayout(LayoutKind.Sequential, Pack = 1)]
+[StructLayout(LayoutKind.Sequential)]
 public struct TTEntry : IEquatable<TTEntry>
 {
-    public ulong Key;
-    public short Score;
-    public Move BestMove;
-    public byte Depth;
-    public byte Type;
-    public byte Age;
+    public ulong Key;        // 8 bytes
+    public Move BestMove;    // 4 bytes
+    public short Score;      // 2 bytes
+    public byte Depth;       // 1 byte
+    public byte Type;        // 1 byte
+    public byte Age;         // 1 byte
+    private byte _padding1;  // 1 byte
+    private short _padding2; // 2 bytes
+    private int _padding3;   // 4 bytes
+    // Total: 24 bytes (will be padded to 32 bytes for alignment)
     
     public override readonly bool Equals(object? obj) => obj is TTEntry other && 
         Key == other.Key && Score == other.Score && BestMove == other.BestMove && 
@@ -64,7 +68,8 @@ public sealed class TranspositionTable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Probe(ulong key, int depth, int alpha, int beta, int ply, out int score, out Move bestMove)
     {
-        var index = (int)(key & (ulong)_sizeMask);
+        // Use multiplication by golden ratio for better distribution
+        var index = (int)((key * 0x9E3779B97F4A7C15UL) >> (64 - BitOperations.Log2((uint)_entries.Length)));
         var entry = _entries[index];
         
         bestMove = Move.None;
@@ -112,7 +117,8 @@ public sealed class TranspositionTable
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Store(ulong key, int score, Move bestMove, int depth, NodeType type, int ply)
     {
-        var index = (int)(key & (ulong)_sizeMask);
+        // Use multiplication by golden ratio for better distribution
+        var index = (int)((key * 0x9E3779B97F4A7C15UL) >> (64 - BitOperations.Log2((uint)_entries.Length)));
         ref var entry = ref _entries[index];
         
         // Lock-free update using a local copy

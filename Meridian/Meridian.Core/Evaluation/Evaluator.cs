@@ -3,16 +3,49 @@
 using System.Runtime.CompilerServices;
 using Meridian.Core.Board;
 using Meridian.Core.MoveGeneration;
+using Meridian.Core.NNUE;
 
 namespace Meridian.Core.Evaluation;
 
 public static class Evaluator
 {
-    private const int PawnValue = 100;
-    private const int KnightValue = 320;
-    private const int BishopValue = 330;
-    private const int RookValue = 500;
-    private const int QueenValue = 900;
+    private static readonly NNUENetwork _nnue = new();
+#pragma warning disable CA1805
+    private static bool _useNNUE = false;
+#pragma warning restore CA1805
+    
+    public static bool UseNNUE 
+    { 
+        get => _useNNUE;
+        set => _useNNUE = value && _nnue.IsLoaded;
+    }
+    
+    public static bool LoadNNUE(string path)
+    {
+        if (_nnue.LoadNetwork(path))
+        {
+            _useNNUE = true;
+            return true;
+        }
+        return false;
+    }
+    
+    public static void InitializeNNUE(Position position)
+    {
+        if (_useNNUE)
+        {
+            _nnue.InitializeAccumulator(position);
+        }
+    }
+    
+    public static void UpdateNNUE(Position position, Move move)
+    {
+        if (_useNNUE)
+        {
+            _nnue.UpdateAccumulator(position, move);
+        }
+    }
+    
     
     private const int MidgameLimit = 15258;
     private const int EndgameLimit = 3915;
@@ -20,12 +53,18 @@ public static class Evaluator
     public static int Evaluate(Position position)
     {
         if (position == null) return 0;
+        
+        if (_useNNUE)
+        {
+            // NNUE returns score from side to move perspective
+            return _nnue.Evaluate(position);
+        }
         var score = 0;
         var midgameScore = 0;
         var endgameScore = 0;
         
-        var whiteMaterial = CountMaterial(position, Color.White);
-        var blackMaterial = CountMaterial(position, Color.Black);
+        var whiteMaterial = position.GetMaterial(Color.White);
+        var blackMaterial = position.GetMaterial(Color.Black);
         var totalMaterial = whiteMaterial + blackMaterial;
         
         var phase = CalculatePhase(totalMaterial);
@@ -60,32 +99,15 @@ public static class Evaluator
         return ((totalMaterial - EndgameLimit) * 256) / (MidgameLimit - EndgameLimit);
     }
     
-    private static int CountMaterial(Position position, Color color)
-    {
-        var material = 0;
-        material += Bitboard.PopCount(position.GetBitboard(color, PieceType.Pawn)) * PawnValue;
-        material += Bitboard.PopCount(position.GetBitboard(color, PieceType.Knight)) * KnightValue;
-        material += Bitboard.PopCount(position.GetBitboard(color, PieceType.Bishop)) * BishopValue;
-        material += Bitboard.PopCount(position.GetBitboard(color, PieceType.Rook)) * RookValue;
-        material += Bitboard.PopCount(position.GetBitboard(color, PieceType.Queen)) * QueenValue;
-        return material;
-    }
     
     private static int EvaluateMaterial(Position position, Color color)
     {
-        var material = 0;
+        var material = position.GetMaterial(color);
         
+        // Add bonuses for special piece configurations
         var pawns = Bitboard.PopCount(position.GetBitboard(color, PieceType.Pawn));
         var knights = Bitboard.PopCount(position.GetBitboard(color, PieceType.Knight));
         var bishops = Bitboard.PopCount(position.GetBitboard(color, PieceType.Bishop));
-        var rooks = Bitboard.PopCount(position.GetBitboard(color, PieceType.Rook));
-        var queens = Bitboard.PopCount(position.GetBitboard(color, PieceType.Queen));
-        
-        material += pawns * PawnValue;
-        material += knights * KnightValue;
-        material += bishops * BishopValue;
-        material += rooks * RookValue;
-        material += queens * QueenValue;
         
         if (bishops >= 2) material += 30;
         
@@ -423,7 +445,7 @@ public static class Evaluator
         
         for (var file = 0; file < 8; file++)
         {
-            var fileMask = GetFileMask(file);
+            var fileMask = AttackTables.FileMask(file);
             var pawnsOnFile = Bitboard.PopCount(pawns & fileMask);
             if (pawnsOnFile > 1)
                 doubled += pawnsOnFile - 1;
@@ -438,12 +460,12 @@ public static class Evaluator
         
         for (var file = 0; file < 8; file++)
         {
-            var fileMask = GetFileMask(file);
+            var fileMask = AttackTables.FileMask(file);
             if ((pawns & fileMask).IsNotEmpty())
             {
                 var adjacentFiles = Bitboard.Empty;
-                if (file > 0) adjacentFiles |= GetFileMask(file - 1);
-                if (file < 7) adjacentFiles |= GetFileMask(file + 1);
+                if (file > 0) adjacentFiles |= AttackTables.FileMask(file - 1);
+                if (file < 7) adjacentFiles |= AttackTables.FileMask(file + 1);
                 
                 if ((pawns & adjacentFiles).IsEmpty())
                     isolated++;
@@ -453,15 +475,6 @@ public static class Evaluator
         return isolated;
     }
     
-    private static Bitboard GetFileMask(int file)
-    {
-        var mask = Bitboard.Empty;
-        for (var rank = 0; rank < 8; rank++)
-        {
-            mask |= SquareExtensions.FromFileRank(file, rank).ToBitboard();
-        }
-        return mask;
-    }
     
     private static int EvaluateKingSafety(Position position, Color color)
     {
