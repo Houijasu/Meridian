@@ -13,14 +13,16 @@ public class SearchData
     private readonly Move[,] _pvTable = new Move[SearchConstants.MaxPly, SearchConstants.MaxPly];
     private readonly int[] _pvLength = new int[SearchConstants.MaxPly];
     private readonly Move[,] _killerMoves = new Move[SearchConstants.MaxPly, 2];
-    
+    private readonly Move[] _moveStack = new Move[SearchConstants.MaxPly];
+
     private long _nodeCount;
     public long NodeCount => Interlocked.Read(ref _nodeCount);
 
     public Move[,] GetPvTable() => _pvTable;
     public int[] GetPvLength() => _pvLength;
     public Move[,] GetKillerMoves() => _killerMoves;
-    
+    public Move[] GetMoveStack() => _moveStack;
+
     public void IncrementNodeCount()
     {
         Interlocked.Increment(ref _nodeCount);
@@ -37,6 +39,7 @@ public class SearchData
             _pvLength[i] = 0;
             _killerMoves[i, 0] = Move.None;
             _killerMoves[i, 1] = Move.None;
+            _moveStack[i] = Move.None;
         }
     }
 }

@@ -20,13 +20,13 @@ public class AdvancedSearchTests
         Assert.IsTrue(positionResult.IsSuccess);
         var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 8 };
-        
+
         var bestMove = _searchEngine.StartSearch(position, limits);
-        
+
         // Should find the only winning move Re1-e2
         Assert.AreEqual("e1e2", bestMove.ToUci());
     }
-    
+
     [TestMethod]
     public void AspirationWindows_RefinessScore()
     {
@@ -34,15 +34,15 @@ public class AdvancedSearchTests
         Assert.IsTrue(positionResult.IsSuccess);
         var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 10 };
-        
+
         var bestMove = _searchEngine.StartSearch(position, limits);
         var info = _searchEngine.SearchInfo;
-        
+
         Assert.AreNotEqual(Move.None, bestMove);
         Assert.IsTrue(info.Depth >= 10, $"Should reach depth 10, but only reached {info.Depth}");
         Assert.IsTrue(info.Nodes > 10000, "Should search many nodes with aspiration windows");
     }
-    
+
     [TestMethod]
     public void LateMovePruning_ReducesNodeCount()
     {
@@ -50,17 +50,17 @@ public class AdvancedSearchTests
         Assert.IsTrue(positionResult.IsSuccess);
         var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 8 };
-        
+
         // Search with new engine (has LMR)
-        var lmrEngine = new SearchEngine(new TranspositionTable(16), new SearchData(), new int[2, 64, 64]);
+        var lmrEngine = new SearchEngine(new TranspositionTable(16), new SearchData(), new int[2, 64, 64], new Move[64, 64], null);
         lmrEngine.StartSearch(position, limits);
         var lmrNodes = lmrEngine.SearchInfo.Nodes;
-        
+
         // LMR should significantly reduce node count
         // This is just a sanity check - exact reduction depends on position
         Assert.IsTrue(lmrNodes < 500000, $"LMR should keep nodes under 500k at depth 8, but searched {lmrNodes}");
     }
-    
+
     [TestMethod]
     public void CheckExtension_FindsDeeperMates()
     {
@@ -70,35 +70,35 @@ public class AdvancedSearchTests
         Assert.IsTrue(positionResult.IsSuccess);
         var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 6 };
-        
+
         var bestMove = _searchEngine.StartSearch(position, limits);
-        
+
         // Should find Bb5xf7+ which leads to mate
         Assert.AreEqual("b5f7", bestMove.ToUci());
         Assert.IsTrue(Math.Abs(_searchEngine.SearchInfo.Score) > 1000, "Should find winning advantage");
     }
-    
-    [TestMethod] 
+
+    [TestMethod]
     public void HistoryHeuristic_ImprovesMoveOrdering()
     {
         var positionResult = Position.FromFen("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3");
         Assert.IsTrue(positionResult.IsSuccess);
         var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 8 };
-        
+
         // First search to populate history
         _searchEngine.StartSearch(position, limits);
-        
+
         // Second search should benefit from history
         var position2Result = Position.FromFen("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4");
         Assert.IsTrue(position2Result.IsSuccess);
         var position2 = position2Result.Value;
         _searchEngine.StartSearch(position2, limits);
-        
+
         // History should be working (this is hard to test directly)
         Assert.IsTrue(_searchEngine.SearchInfo.Nodes > 0);
     }
-    
+
     [TestMethod]
     public void FutilityPruning_PrunesHopelessPositions()
     {
@@ -108,10 +108,10 @@ public class AdvancedSearchTests
         Assert.IsTrue(positionResult.IsSuccess);
         var position = positionResult.Value;
         var limits = new SearchLimits { Depth = 6 };
-        
+
         var bestMove = _searchEngine.StartSearch(position, limits);
         var nodes = _searchEngine.SearchInfo.Nodes;
-        
+
         // Futility pruning should reduce nodes significantly
         Assert.IsTrue(nodes < 100000, $"Futility should prune many nodes, but searched {nodes}");
     }
