@@ -58,7 +58,7 @@ public sealed class SearchEngine
         {
             var depthStartNodes = _searchData.NodeCount;
             var depthStartTime = DateTime.UtcNow;
-            
+
             var score = Search(position, depth, alpha, beta, 0);
 
             if (!_shouldStop && (score <= alpha || score >= beta))
@@ -102,7 +102,7 @@ public sealed class SearchEngine
             {
                 break;
             }
-            
+
             if (depth >= 5)
             {
                 alpha = score - aspirationDelta;
@@ -250,9 +250,9 @@ public sealed class SearchEngine
                         break;
                     }
                 }
-                else if (ply == 0 && movesSearched == 1)
+                else if (ply == 0)
                 {
-                    // At root, always update PV with first legal move if no better move found
+                    // At root, always update PV with the best move found so far
                     UpdatePrincipalVariation(move, ply);
                 }
             }
@@ -298,7 +298,7 @@ public sealed class SearchEngine
         // Create a new list with only captures and promotions
         Span<Move> captureBuffer = ply > 32 ? new Move[64] : stackalloc Move[64];
         var captures = new MoveList(captureBuffer);
-        
+
         for (var i = 0; i < moves.Count; i++)
         {
             var move = moves[i];
@@ -347,12 +347,12 @@ public sealed class SearchEngine
         // Use partial insertion sort - we often only need the first few moves
         // This is O(k*n) where k is the number of moves we actually search
         var sortLimit = Math.Min(moves.Count, 8); // Sort top 8 moves fully
-        
+
         for (var i = 0; i < sortLimit; i++)
         {
             var bestIndex = i;
             var bestScore = scores[i];
-            
+
             // Find the best move in the remaining unsorted portion
             for (var j = i + 1; j < moves.Count; j++)
             {
@@ -362,20 +362,20 @@ public sealed class SearchEngine
                     bestScore = scores[j];
                 }
             }
-            
+
             // Swap if we found a better move
             if (bestIndex != i)
             {
                 var tempMove = moves[i];
                 moves.Set(i, moves[bestIndex]);
                 moves.Set(bestIndex, tempMove);
-                
+
                 var tempScore = scores[i];
                 scores[i] = scores[bestIndex];
                 scores[bestIndex] = tempScore;
             }
         }
-        
+
         // For the remaining moves, use insertion sort as they're generated
         // This allows for incremental sorting if we need more moves
         for (var i = sortLimit; i < moves.Count && i < 32; i++)
@@ -383,11 +383,11 @@ public sealed class SearchEngine
             var currentMove = moves[i];
             var currentScore = scores[i];
             var j = i - 1;
-            
+
             // Skip if this move isn't good enough to be in sorted portion
             if (currentScore <= scores[sortLimit - 1])
                 continue;
-                
+
             // Find insertion position
             while (j >= 0 && scores[j] < currentScore)
             {
@@ -395,7 +395,7 @@ public sealed class SearchEngine
                 scores[j + 1] = scores[j];
                 j--;
             }
-            
+
             moves.Set(j + 1, currentMove);
             scores[j + 1] = currentScore;
         }
@@ -406,7 +406,7 @@ public sealed class SearchEngine
         if (captures.Count == 0) return;
 
         Span<int> scores = stackalloc int[64];
-        
+
         // Score all captures
         for (var i = 0; i < captures.Count; i++)
         {
@@ -415,12 +415,12 @@ public sealed class SearchEngine
 
         // Use partial selection sort for captures - we often prune after just a few
         var sortLimit = Math.Min(captures.Count, 6);
-        
+
         for (var i = 0; i < sortLimit; i++)
         {
             var bestIndex = i;
             var bestScore = scores[i];
-            
+
             for (var j = i + 1; j < captures.Count; j++)
             {
                 if (scores[j] > bestScore)
@@ -429,13 +429,13 @@ public sealed class SearchEngine
                     bestScore = scores[j];
                 }
             }
-            
+
             if (bestIndex != i)
             {
                 var tempMove = captures[i];
                 captures.Set(i, captures[bestIndex]);
                 captures.Set(bestIndex, tempMove);
-                
+
                 var tempScore = scores[i];
                 scores[i] = scores[bestIndex];
                 scores[bestIndex] = tempScore;
@@ -467,7 +467,7 @@ public sealed class SearchEngine
         {
             return;
         }
-        
+
         _searchData.GetPvTable()[ply, ply] = move;
         var childPly = ply + 1;
         if (childPly < SearchConstants.MaxPly && _searchData.GetPvLength()[childPly] > 0)

@@ -16,4 +16,10 @@
     <ProjectReference Include="..\..\Meridian.Core\Meridian.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="networks\obsidian.nnue">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

@@ -10,7 +10,7 @@ namespace Meridian.Core.Board;
 public sealed class Position
 {
     public const string StartingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    
+
     public static Position StartingPosition() => FromFen(StartingFen).Value;
 
     private readonly Bitboard[] _pieceBitboards;
@@ -18,16 +18,16 @@ public sealed class Position
     private readonly Piece[] _board;
     private readonly int[] _material;
     private readonly int[] _pieceCount;
-    
+
     public Color SideToMove { get; internal set; }
     public CastlingRights CastlingRights { get; internal set; }
     public Square EnPassantSquare { get; internal set; }
     public int HalfmoveClock { get; internal set; }
     public int FullmoveNumber { get; private set; }
     public ulong ZobristKey { get; internal set; }
-    
+
     public int GetMaterial(Color color) => _material[(int)color];
-    
+
     private static int GetPieceValue(PieceType type) => type switch
     {
         PieceType.Pawn => 100,
@@ -60,19 +60,19 @@ public sealed class Position
             EnPassantSquare = Square.None;
             return;
         }
-        
+
         _pieceBitboards = new Bitboard[7];
         _colorBitboards = new Bitboard[2];
         _board = new Piece[64];
         _material = new int[2];
         _pieceCount = new int[2];
-        
+
         Array.Copy(other._pieceBitboards, _pieceBitboards, 7);
         Array.Copy(other._colorBitboards, _colorBitboards, 2);
         Array.Copy(other._board, _board, 64);
         Array.Copy(other._material, _material, 2);
         Array.Copy(other._pieceCount, _pieceCount, 2);
-        
+
         SideToMove = other.SideToMove;
         CastlingRights = other.CastlingRights;
         EnPassantSquare = other.EnPassantSquare;
@@ -88,7 +88,7 @@ public sealed class Position
     public Bitboard GetBitboard(Color color) => _colorBitboards[(int)color];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Bitboard GetBitboard(Color color, PieceType pieceType) => 
+    public Bitboard GetBitboard(Color color, PieceType pieceType) =>
         _pieceBitboards[(int)pieceType] & _colorBitboards[(int)color];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -106,18 +106,18 @@ public sealed class Position
     public void SetPiece(Square square, Piece piece)
     {
         RemovePiece(square);
-        
+
         if (piece != Piece.None)
         {
             _board[(int)square] = piece;
             var color = piece.GetColor();
             var type = piece.Type();
-            
+
             _pieceBitboards[(int)type] |= square.ToBitboard();
             _colorBitboards[(int)color] |= square.ToBitboard();
-            
+
             ZobristKey ^= Zobrist.PieceKey(square, piece);
-            
+
             // Update material and piece count
             _material[(int)color] += GetPieceValue(type);
             _pieceCount[(int)color]++;
@@ -132,12 +132,12 @@ public sealed class Position
             _board[(int)square] = Piece.None;
             var color = piece.GetColor();
             var type = piece.Type();
-            
+
             _pieceBitboards[(int)type] &= ~square.ToBitboard();
             _colorBitboards[(int)color] &= ~square.ToBitboard();
-            
+
             ZobristKey ^= Zobrist.PieceKey(square, piece);
-            
+
             // Update material and piece count
             _material[(int)color] -= GetPieceValue(type);
             _pieceCount[(int)color]--;
@@ -152,12 +152,12 @@ public sealed class Position
         var oldEnPassantSquare = EnPassantSquare;
         var oldHalfmoveClock = HalfmoveClock;
         var oldZobristKey = ZobristKey;
-        
+
         var from = move.From;
         var to = move.To;
         var piece = GetPiece(from);
         var pieceType = piece.Type();
-        
+
         if (move.IsEnPassant)
         {
             var captureSquare = SideToMove == Color.White ? to - 8 : to + 8;
@@ -170,9 +170,9 @@ public sealed class Position
             capturedPiece = GetPiece(to);
             RemovePiece(to);
         }
-        
+
         RemovePiece(from);
-        
+
         if (move.IsPromotion)
         {
             SetPiece(to, PieceExtensions.MakePiece(SideToMove, move.PromotionType));
@@ -181,7 +181,7 @@ public sealed class Position
         {
             SetPiece(to, piece);
         }
-        
+
         if (move.IsCastling)
         {
             Square rookFrom, rookTo;
@@ -205,12 +205,12 @@ public sealed class Position
                 rookFrom = Square.A8;
                 rookTo = Square.D8;
             }
-            
+
             var rook = GetPiece(rookFrom);
             RemovePiece(rookFrom);
             SetPiece(rookTo, rook);
         }
-        
+
         if (pieceType == PieceType.King)
         {
             CastlingRights &= SideToMove == Color.White ? ~CastlingRights.White : ~CastlingRights.Black;
@@ -222,23 +222,23 @@ public sealed class Position
             else if (from == Square.A8) CastlingRights &= ~CastlingRights.BlackQueenside;
             else if (from == Square.H8) CastlingRights &= ~CastlingRights.BlackKingside;
         }
-        
+
         if (to == Square.A1) CastlingRights &= ~CastlingRights.WhiteQueenside;
         else if (to == Square.H1) CastlingRights &= ~CastlingRights.WhiteKingside;
         else if (to == Square.A8) CastlingRights &= ~CastlingRights.BlackQueenside;
         else if (to == Square.H8) CastlingRights &= ~CastlingRights.BlackKingside;
-        
+
         if (oldCastlingRights != CastlingRights)
         {
             ZobristKey ^= Zobrist.CastlingKey(oldCastlingRights);
             ZobristKey ^= Zobrist.CastlingKey(CastlingRights);
         }
-        
+
         if (EnPassantSquare != Square.None)
         {
             ZobristKey ^= Zobrist.EnPassantKey(EnPassantSquare);
         }
-        
+
         // Only set en passant square if an opposing pawn can capture
         if (move.IsDoublePush)
         {
@@ -246,9 +246,9 @@ public sealed class Position
             var destFile = to.File();
             var destRank = to.Rank();
             var opposingPawn = SideToMove == Color.White ? Piece.BlackPawn : Piece.WhitePawn;
-            
+
             bool canBeCapturedEnPassant = false;
-            
+
             // Check left adjacent file
             if (destFile > 0)
             {
@@ -256,7 +256,7 @@ public sealed class Position
                 if (GetPiece(leftSquare) == opposingPawn)
                     canBeCapturedEnPassant = true;
             }
-            
+
             // Check right adjacent file
             if (destFile < 7 && !canBeCapturedEnPassant)
             {
@@ -264,56 +264,56 @@ public sealed class Position
                 if (GetPiece(rightSquare) == opposingPawn)
                     canBeCapturedEnPassant = true;
             }
-            
+
             EnPassantSquare = canBeCapturedEnPassant ? potentialEpSquare : Square.None;
         }
         else
         {
             EnPassantSquare = Square.None;
         }
-            
+
         if (EnPassantSquare != Square.None)
         {
             ZobristKey ^= Zobrist.EnPassantKey(EnPassantSquare);
         }
-        
+
         if (move.IsCapture || pieceType == PieceType.Pawn)
             HalfmoveClock = 0;
         else
             HalfmoveClock++;
-        
+
         if (SideToMove == Color.Black)
             FullmoveNumber++;
-        
+
         ZobristKey ^= Zobrist.SideKey();
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
-        
+
         return new UndoInfo(capturedPiece, oldCastlingRights, oldEnPassantSquare, oldHalfmoveClock, oldZobristKey);
     }
-    
+
     public void UnmakeMove(Move move, UndoInfo undoInfo)
     {
         // Check if this was Black's move before switching sides
         var wasBlacksMove = SideToMove == Color.White;
-        
+
         // Switch back the side to move
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
-        
+
         // Restore the moved piece
         var from = move.From;
         var to = move.To;
         var piece = GetPiece(to);
-        
+
         // Handle promotions - restore the original pawn
         if (move.IsPromotion)
         {
             piece = PieceExtensions.MakePiece(SideToMove, PieceType.Pawn);
         }
-        
+
         // Move piece back from 'to' to 'from'
         RemovePiece(to);
         SetPiece(from, piece);
-        
+
         // Restore captured piece
         if (move.IsEnPassant)
         {
@@ -325,13 +325,13 @@ public sealed class Position
         {
             SetPiece(to, undoInfo.CapturedPiece);
         }
-        
+
         // Handle castling - move the rook back
         if (move.IsCastling)
         {
             var rookFrom = Square.None;
             var rookTo = Square.None;
-            
+
             if (to == Square.G1)
             {
                 rookFrom = Square.F1;
@@ -352,7 +352,7 @@ public sealed class Position
                 rookFrom = Square.D8;
                 rookTo = Square.A8;
             }
-            
+
             if (rookFrom != Square.None)
             {
                 var rook = GetPiece(rookFrom);
@@ -360,36 +360,47 @@ public sealed class Position
                 SetPiece(rookTo, rook);
             }
         }
-        
+
         // Restore game state
         CastlingRights = undoInfo.CastlingRights;
         EnPassantSquare = undoInfo.EnPassantSquare;
         HalfmoveClock = undoInfo.HalfmoveClock;
         ZobristKey = undoInfo.ZobristKey;
-        
+
         // Decrement fullmove number if needed
         if (wasBlacksMove)
             FullmoveNumber--;
     }
-    
+
     public int GetKingSquare(bool white)
     {
         var kingBitboard = GetBitboard(white ? Color.White : Color.Black, PieceType.King);
         return kingBitboard.IsEmpty() ? -1 : kingBitboard.GetLsbIndex();
     }
-    
+
+    public Square GetKingSquare(Color color)
+    {
+        var kingBitboard = GetBitboard(color, PieceType.King);
+        return kingBitboard.IsEmpty() ? Square.None : (Square)kingBitboard.GetLsbIndex();
+    }
+
     public Piece? GetPieceAt(int square)
     {
         if (square < 0 || square >= 64) return null;
         var piece = _board[square];
         return piece == Piece.None ? null : piece;
     }
-    
+
     public int GetPieceCount()
     {
         return Bitboard.PopCount(OccupiedSquares());
     }
-    
+
+    public int GetPieceCount(PieceType pieceType)
+    {
+        return Bitboard.PopCount(_pieceBitboards[(int)pieceType]);
+    }
+
     public void MakeNullMove()
     {
         if (EnPassantSquare != Square.None)
@@ -397,40 +408,40 @@ public sealed class Position
             ZobristKey ^= Zobrist.EnPassantKey(EnPassantSquare);
             EnPassantSquare = Square.None;
         }
-        
+
         HalfmoveClock++;
-        
+
         // Only increment fullmove when Black makes a move
         if (SideToMove == Color.Black)
             FullmoveNumber++;
-            
+
         ZobristKey ^= Zobrist.SideKey();
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
     }
-    
+
     public UndoInfo MakeNullMoveWithUndo()
     {
         var oldEnPassantSquare = EnPassantSquare;
         var oldHalfmoveClock = HalfmoveClock;
         var oldZobristKey = ZobristKey;
-        
+
         MakeNullMove();
-        
+
         return new UndoInfo(Piece.None, CastlingRights, oldEnPassantSquare, oldHalfmoveClock, oldZobristKey);
     }
-    
+
     public void UnmakeNullMove(UndoInfo undoInfo)
     {
         // Check if this was Black's null move before switching sides
         var wasBlacksMove = SideToMove == Color.White;
-        
+
         // Restore side to move
         SideToMove = SideToMove == Color.White ? Color.Black : Color.White;
-        
+
         // Restore fullmove number if needed
         if (wasBlacksMove)
             FullmoveNumber--;
-            
+
         // Restore other fields
         HalfmoveClock = undoInfo.HalfmoveClock;
         EnPassantSquare = undoInfo.EnPassantSquare;
@@ -516,7 +527,7 @@ public sealed class Position
     public string ToFen()
     {
         var sb = new StringBuilder();
-        
+
         for (var rank = 7; rank >= 0; rank--)
         {
             var emptyCount = 0;
@@ -546,11 +557,11 @@ public sealed class Position
                 sb.Append('/');
             }
         }
-        
+
         sb.Append(' ');
         sb.Append(SideToMove == Color.White ? 'w' : 'b');
         sb.Append(' ');
-        
+
         if (CastlingRights == CastlingRights.None)
         {
             sb.Append('-');
@@ -562,14 +573,14 @@ public sealed class Position
             if ((CastlingRights & CastlingRights.BlackKingside) != 0) sb.Append('k');
             if ((CastlingRights & CastlingRights.BlackQueenside) != 0) sb.Append('q');
         }
-        
+
         sb.Append(' ');
         sb.Append(EnPassantSquare == Square.None ? "-" : EnPassantSquare.ToAlgebraic());
         sb.Append(' ');
         sb.Append(HalfmoveClock);
         sb.Append(' ');
         sb.Append(FullmoveNumber);
-        
+
         return sb.ToString();
     }
 

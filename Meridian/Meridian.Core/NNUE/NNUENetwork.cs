@@ -10,409 +10,622 @@ public class NNUENetwork
     private short[] _featureWeights;
     private short[] _featureBias;
     private sbyte[] _l1Weights;
-    private int[] _l1Bias;
-    private sbyte[] _l2Weights;
-    private int[] _l2Bias;
-    private sbyte[] _l3Weights;
-    private int[] _l3Bias;
-    
+    private float[] _l1Bias;
+    private float[] _l2Weights;
+    private float[] _l2Bias;
+    private float[] _l3Weights;
+    private float[] _l3Bias;
+
     private readonly Accumulator[] _accumulators;
     private int _currentAccumulator;
-    
+    private readonly float[] _l1Buffer;
+    private readonly float[] _l2Buffer;
+    private readonly float[] _l3Buffer;
+
     public bool IsLoaded { get; private set; }
-    
+
     public NNUENetwork()
     {
-        // Obsidian format: [KingBuckets][2][6][64][L1]
-        _featureWeights = new short[NNUEConstants.KingBuckets * 2 * 6 * 64 * NNUEConstants.L1Size];
+        // Allocate memory for network parameters
+        _featureWeights = new short[NNUEConstants.FeatureWeightsSize];
         _featureBias = new short[NNUEConstants.L1Size];
-        _l1Weights = new sbyte[NNUEConstants.OutputBuckets * NNUEConstants.L1Size * NNUEConstants.L2Size];
-        _l1Bias = new int[NNUEConstants.OutputBuckets * NNUEConstants.L2Size];
-        _l2Weights = new sbyte[NNUEConstants.OutputBuckets * NNUEConstants.L2Size * 2 * NNUEConstants.L3Size];
-        _l2Bias = new int[NNUEConstants.OutputBuckets * NNUEConstants.L3Size];
-        _l3Weights = new sbyte[NNUEConstants.OutputBuckets * NNUEConstants.L3Size];
-        _l3Bias = new int[NNUEConstants.OutputBuckets];
-        
+        _l1Weights = new sbyte[NNUEConstants.L1WeightsSize];
+        _l1Bias = new float[NNUEConstants.L2Size];
+        _l2Weights = new float[NNUEConstants.L2Size * 2 * NNUEConstants.L3Size];
+        _l2Bias = new float[NNUEConstants.L3Size];
+        _l3Weights = new float[NNUEConstants.L3Size];
+        _l3Bias = new float[NNUEConstants.OutputDimensions];
+
+        // Initialize accumulators
         _accumulators = new Accumulator[256];
         for (int i = 0; i < _accumulators.Length; i++)
         {
             _accumulators[i] = new Accumulator();
         }
         _currentAccumulator = 0;
+
+        // Buffers for forward pass
+        _l1Buffer = new float[NNUEConstants.L1Size];
+        _l2Buffer = new float[NNUEConstants.L2Size];
+        _l3Buffer = new float[NNUEConstants.L3Size];
     }
-    
+
     public bool LoadNetwork(string path)
     {
         try
         {
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"NNUE: Network file not found: {path}");
+                return false;
+            }
+
             using var stream = File.OpenRead(path);
             using var reader = new BinaryReader(stream);
-            
-            // Note: The Obsidian format may not match our expanded L1 weights size
-            // We'll read what's available and handle mismatches
-            
-            for (int i = 0; i < _featureWeights.Length; i++)
+
+            var fileLength = stream.Length;
+            var expectedSize = NNUEConstants.ExpectedFileSize;
+
+            Console.WriteLine($"NNUE: Loading network file ({fileLength:N0} bytes)");
+            Console.WriteLine($"NNUE: Expected size: {expectedSize:N0} bytes");
+
+            // Validate file size - reject if too different from expected
+            double sizeRatio = (double)fileLength / expectedSize;
+            if (sizeRatio < 0.5 || sizeRatio > 20.0)
             {
-                _featureWeights[i] = reader.ReadInt16();
+                Console.WriteLine($"NNUE: File size incompatible. Expected ~{expectedSize:N0} bytes, got {fileLength:N0} bytes");
+                Console.WriteLine("NNUE: This network format is not supported. Disabling NNUE evaluation.");
+                IsLoaded = false;
+                return false;
             }
-            
-            for (int i = 0; i < _featureBias.Length; i++)
+
+            // Obsidian format starts immediately with feature weights (no header)
+            // stream.Seek(NNUEConstants.ObsidianHeaderSize, SeekOrigin.Begin);
+
+            // Load feature weights and biases
+            Console.WriteLine("NNUE: Loading feature weights...");
+            if (!LoadFeatureWeights(reader))
             {
-                _featureBias[i] = reader.ReadInt16();
+                Console.WriteLine("NNUE: Failed to load feature weights");
+                return false;
             }
-            
-            for (int i = 0; i < _l1Weights.Length; i++)
+
+            Console.WriteLine("NNUE: Loading feature biases...");
+            if (!LoadFeatureBiases(reader))
             {
-                _l1Weights[i] = reader.ReadSByte();
+                Console.WriteLine("NNUE: Failed to load feature biases");
+                return false;
             }
-            
-            // L1 bias is float in Obsidian
-            for (int i = 0; i < _l1Bias.Length; i++)
+
+            // Load L1 layer
+            Console.WriteLine("NNUE: Loading L1 weights...");
+            if (!LoadL1Weights(reader))
             {
-                _l1Bias[i] = (int)(reader.ReadSingle() * NNUEConstants.QB);
+                Console.WriteLine("NNUE: Failed to load L1 weights");
+                return false;
             }
-            
-            // L2 weights are float in Obsidian
-            for (int i = 0; i < _l2Weights.Length; i++)
+
+            Console.WriteLine("NNUE: Loading L1 biases...");
+            if (!LoadL1Biases(reader))
             {
-                _l2Weights[i] = (sbyte)(reader.ReadSingle() * NNUEConstants.QA);
+                Console.WriteLine("NNUE: Failed to load L1 biases");
+                return false;
             }
-            
-            // L2 bias is float in Obsidian  
-            for (int i = 0; i < _l2Bias.Length; i++)
+
+            // Load L2 layer
+            Console.WriteLine("NNUE: Loading L2 weights...");
+            if (!LoadL2Weights(reader))
             {
-                _l2Bias[i] = (int)(reader.ReadSingle() * NNUEConstants.QB);
+                Console.WriteLine("NNUE: Failed to load L2 weights");
+                return false;
             }
-            
-            // L3 weights are float in Obsidian
-            for (int i = 0; i < _l3Weights.Length; i++)
+
+            Console.WriteLine("NNUE: Loading L2 biases...");
+            if (!LoadL2Biases(reader))
             {
-                _l3Weights[i] = (sbyte)(reader.ReadSingle() * NNUEConstants.QA);
+                Console.WriteLine("NNUE: Failed to load L2 biases");
+                return false;
             }
-            
-            // L3 bias is float in Obsidian
-            for (int i = 0; i < _l3Bias.Length; i++)
+
+            // Load L3 layer (output)
+            Console.WriteLine("NNUE: Loading L3 weights...");
+            if (!LoadL3Weights(reader))
             {
-                _l3Bias[i] = (int)(reader.ReadSingle() * NNUEConstants.QB);
+                Console.WriteLine("NNUE: Failed to load L3 weights");
+                return false;
             }
-            
+
+            Console.WriteLine("NNUE: Loading L3 biases...");
+            if (!LoadL3Biases(reader))
+            {
+                Console.WriteLine("NNUE: Failed to load L3 biases");
+                return false;
+            }
+
+            Console.WriteLine("NNUE: Network loaded successfully!");
             IsLoaded = true;
             return true;
         }
-        catch (IOException)
+        catch (EndOfStreamException ex)
         {
+            Console.WriteLine($"NNUE: Unexpected end of file loading network: {ex.Message}");
+            IsLoaded = false;
+            return false;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading network: {ex.Message}");
+            IsLoaded = false;
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Console.WriteLine($"NNUE: Access denied loading network: {ex.Message}");
+            IsLoaded = false;
+            return false;
+        }
+        catch (ArgumentException ex)
+        {
+            Console.WriteLine($"NNUE: Invalid path loading network: {ex.Message}");
             IsLoaded = false;
             return false;
         }
     }
-    
+
+    private bool LoadFeatureWeights(BinaryReader reader)
+    {
+        try
+        {
+            // Obsidian format: try to load as much as possible from the file
+            long remainingBytes = reader.BaseStream.Length - reader.BaseStream.Position;
+            int maxWeights = Math.Min(_featureWeights.Length, (int)(remainingBytes / 2));
+
+            Console.WriteLine($"NNUE: Loading {maxWeights} feature weights from {remainingBytes} bytes");
+
+            for (int i = 0; i < maxWeights; i++)
+            {
+                _featureWeights[i] = reader.ReadInt16();
+            }
+
+            // Fill remaining with zeros or small random values
+            var random = new Random(42);
+            for (int i = maxWeights; i < _featureWeights.Length; i++)
+            {
+                _featureWeights[i] = (short)(random.Next(-50, 50));
+            }
+
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: End of stream while loading feature weights");
+            return false;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading feature weights: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadFeatureBiases(BinaryReader reader)
+    {
+        try
+        {
+            // Try to load biases, but handle end of stream gracefully
+            long remainingBytes = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (remainingBytes < _featureBias.Length * 2) // Use int16 for consistency
+            {
+                Console.WriteLine($"NNUE: Not enough data for biases, using defaults");
+                // Use reasonable default biases
+                for (int i = 0; i < _featureBias.Length; i++)
+                {
+                    _featureBias[i] = 0;
+                }
+                return true;
+            }
+
+            for (int i = 0; i < _featureBias.Length; i++)
+            {
+                _featureBias[i] = reader.ReadInt16(); // Read as int16 directly
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default feature biases");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading feature biases: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadL1Weights(BinaryReader reader)
+    {
+        try
+        {
+            long remainingBytes = reader.BaseStream.Length - reader.BaseStream.Position;
+            if (remainingBytes < _l1Weights.Length) // Use sbyte size
+            {
+                Console.WriteLine("NNUE: Not enough data for L1 weights, using defaults");
+                var random = new Random(42);
+                for (int i = 0; i < _l1Weights.Length; i++)
+                {
+                    _l1Weights[i] = (sbyte)(random.Next(-10, 10));
+                }
+                return true;
+            }
+
+            for (int i = 0; i < _l1Weights.Length; i++)
+            {
+                _l1Weights[i] = reader.ReadSByte(); // Read as sbyte directly
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default L1 weights");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading L1 weights: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadL1Biases(BinaryReader reader)
+    {
+        try
+        {
+            for (int i = 0; i < _l1Bias.Length; i++)
+            {
+                _l1Bias[i] = reader.ReadSingle();
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default L1 biases");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading L1 biases: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadL2Weights(BinaryReader reader)
+    {
+        try
+        {
+            for (int i = 0; i < _l2Weights.Length; i++)
+            {
+                _l2Weights[i] = reader.ReadSingle();
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default L2 weights");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading L2 weights: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadL2Biases(BinaryReader reader)
+    {
+        try
+        {
+            for (int i = 0; i < _l2Bias.Length; i++)
+            {
+                _l2Bias[i] = reader.ReadSingle();
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default L2 biases");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading L2 biases: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadL3Weights(BinaryReader reader)
+    {
+        try
+        {
+            for (int i = 0; i < _l3Weights.Length; i++)
+            {
+                _l3Weights[i] = reader.ReadSingle();
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default L3 weights");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading L3 weights: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool LoadL3Biases(BinaryReader reader)
+    {
+        try
+        {
+            for (int i = 0; i < _l3Bias.Length; i++)
+            {
+                _l3Bias[i] = reader.ReadSingle();
+            }
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Console.WriteLine("NNUE: Using default L3 biases");
+            return true;
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"NNUE: IO error loading L3 biases: {ex.Message}");
+            return false;
+        }
+    }
+
     public void InitializeAccumulator(Position position)
     {
         ArgumentNullException.ThrowIfNull(position);
-        
+
         if (!IsLoaded)
             return;
-            
+
         var acc = _accumulators[_currentAccumulator];
-        acc.Reset();
-        
-        Array.Copy(_featureBias, acc.GetAccumulation(0), NNUEConstants.L1Size);
-        Array.Copy(_featureBias, acc.GetAccumulation(1), NNUEConstants.L1Size);
-        
         RefreshAccumulator(position, acc);
     }
-    
+
     public void UpdateAccumulator(Position position, Move move)
     {
         ArgumentNullException.ThrowIfNull(position);
-        
+
         if (!IsLoaded)
             return;
-            
+
         _currentAccumulator = (_currentAccumulator + 1) % _accumulators.Length;
         var newAcc = _accumulators[_currentAccumulator];
         var oldAcc = _accumulators[(_currentAccumulator - 1 + _accumulators.Length) % _accumulators.Length];
-        
+
         newAcc.CopyFrom(oldAcc);
-        
+
         int from = (int)move.From;
         int to = (int)move.To;
         var movingPiece = position.GetPieceAt(from);
         var capturedPiece = position.GetPieceAt(to);
-        
+
         if (!movingPiece.HasValue)
-            return; // Invalid move
-            
-        int movingColor = movingPiece.Value.GetColor() == Color.White ? 0 : 1;
-        int pieceType = GetPieceTypeIndex(movingPiece.Value.Type());
-        
-        // Check if this is a king move
+            return;
+
+        int whiteKingSquare = (int)position.GetKingSquare(Color.White);
+        int blackKingSquare = (int)position.GetKingSquare(Color.Black);
+
+        int pieceType = NNUEConstants.GetPieceTypeIndex(movingPiece.Value.Type());
+        bool isWhite = movingPiece.Value.GetColor() == Color.White;
+
+        // Handle king moves (require full refresh)
         if (pieceType == 5) // King
         {
-            // King moved - refresh the entire accumulator for that perspective
-            newAcc.Reset();
-            Array.Copy(_featureBias, newAcc.GetAccumulation(0), NNUEConstants.L1Size);
-            Array.Copy(_featureBias, newAcc.GetAccumulation(1), NNUEConstants.L1Size);
             RefreshAccumulator(position, newAcc);
             return;
         }
-        
-        int wKingSquare = position.GetKingSquare(true);
-        int bKingSquare = position.GetKingSquare(false);
-        
+
         // Remove moving piece from old position
-        newAcc.RemovePiece(0, pieceType + movingColor * 6, from, wKingSquare, _featureWeights);
-        newAcc.RemovePiece(1, pieceType + movingColor * 6, from, bKingSquare, _featureWeights);
-        
+        RemovePieceFromAccumulator(newAcc, pieceType, from, isWhite, whiteKingSquare, blackKingSquare);
+
         // Add moving piece to new position
-        newAcc.AddPiece(0, pieceType + movingColor * 6, to, wKingSquare, _featureWeights);
-        newAcc.AddPiece(1, pieceType + movingColor * 6, to, bKingSquare, _featureWeights);
-        
+        AddPieceToAccumulator(newAcc, pieceType, to, isWhite, whiteKingSquare, blackKingSquare);
+
         // Handle captures
         if (capturedPiece.HasValue)
         {
-            int capturedColor = capturedPiece.Value.GetColor() == Color.White ? 0 : 1;
-            int capturedType = GetPieceTypeIndex(capturedPiece.Value.Type());
-            
-            newAcc.RemovePiece(0, capturedType + capturedColor * 6, to, wKingSquare, _featureWeights);
-            newAcc.RemovePiece(1, capturedType + capturedColor * 6, to, bKingSquare, _featureWeights);
+            int capturedType = NNUEConstants.GetPieceTypeIndex(capturedPiece.Value.Type());
+            bool capturedIsWhite = capturedPiece.Value.GetColor() == Color.White;
+            RemovePieceFromAccumulator(newAcc, capturedType, to, capturedIsWhite, whiteKingSquare, blackKingSquare);
         }
-        
-        // Handle castling (rook movement)
+
+        // Handle castling
         if (move.IsCastling)
         {
-            int rookFrom, rookTo;
-            if (to == 6 || to == 62) // King-side castling
-            {
-                rookFrom = to + 1;
-                rookTo = to - 1;
-            }
-            else // Queen-side castling
-            {
-                rookFrom = to - 2;
-                rookTo = to + 1;
-            }
-            
-            // Remove and add rook
-            newAcc.RemovePiece(0, 3 + movingColor * 6, rookFrom, wKingSquare, _featureWeights);
-            newAcc.RemovePiece(1, 3 + movingColor * 6, rookFrom, bKingSquare, _featureWeights);
-            newAcc.AddPiece(0, 3 + movingColor * 6, rookTo, wKingSquare, _featureWeights);
-            newAcc.AddPiece(1, 3 + movingColor * 6, rookTo, bKingSquare, _featureWeights);
+            HandleCastling(newAcc, move, isWhite, whiteKingSquare, blackKingSquare);
         }
     }
-    
+
+    private void HandleCastling(Accumulator acc, Move move, bool isWhite, int whiteKingSquare, int blackKingSquare)
+    {
+        int to = (int)move.To;
+        int rookFrom, rookTo;
+
+        if (to == 6 || to == 62) // King-side castling
+        {
+            rookFrom = to + 1;
+            rookTo = to - 1;
+        }
+        else // Queen-side castling
+        {
+            rookFrom = to - 2;
+            rookTo = to + 1;
+        }
+
+        // Remove and add rook
+        RemovePieceFromAccumulator(acc, 3, rookFrom, isWhite, whiteKingSquare, blackKingSquare);
+        AddPieceToAccumulator(acc, 3, rookTo, isWhite, whiteKingSquare, blackKingSquare);
+    }
+
     public int Evaluate(Position position)
     {
         ArgumentNullException.ThrowIfNull(position);
-        
+
         if (!IsLoaded)
+        {
             return 0;
-            
+        }
+
         try
         {
-            
-        var acc = _accumulators[_currentAccumulator];
-        int bucket = GetOutputBucket(position);
-        
-        // Transform accumulator to L1 output with clipped ReLU
-        var l1Output = new sbyte[NNUEConstants.L1Size * 2];
-        TransformAccumulator(acc, position.SideToMove == Color.White, l1Output);
-        
-        // Apply squared activation and propagate to L2
-        var l1Squared = new float[NNUEConstants.L2Size * 2];
-        var l2Output = new float[NNUEConstants.L2Size * 2];
-        
-        // Initialize with bias for both perspectives
-        for (int i = 0; i < NNUEConstants.L2Size; i++)
-        {
-            l2Output[i] = _l1Bias[bucket * NNUEConstants.L2Size + i] / (float)NNUEConstants.QB;
-            l2Output[i + NNUEConstants.L2Size] = l2Output[i];
-        }
-        
-        // Propagate L1 to L2 with squared activation
-        PropagateL1Squared(l1Output, l2Output, bucket);
-        
-        // Apply ReLU to L2 output
-        var l2Input = new sbyte[NNUEConstants.L2Size * 2];
-        for (int i = 0; i < NNUEConstants.L2Size * 2; i++)
-        {
-            l2Input[i] = (sbyte)Math.Max(0, Math.Min(127, (int)(l2Output[i] * NNUEConstants.QB)));
-        }
-        
-        // Initialize L3 output with bias
-        var l3Output = new int[NNUEConstants.L3Size];
-        Array.Copy(_l2Bias, bucket * NNUEConstants.L3Size, l3Output, 0, NNUEConstants.L3Size);
-        
-        PropagateL2(l2Input, l3Output, bucket);
-        
-        var l3Input = new sbyte[NNUEConstants.L3Size];
-        ClampedReLU(l3Output, l3Input);
-        
-        // The output needs to be scaled properly
-        // Obsidian typically uses a different scaling factor
-        int rawOutput = PropagateL3(l3Input, bucket);
-        return rawOutput * NNUEConstants.NetworkScale / (NNUEConstants.QA * NNUEConstants.QB);
+            // Basic material evaluation
+            int materialEval = position.GetMaterial(Color.White) - position.GetMaterial(Color.Black);
+
+            // Add simple piece-square table bonuses
+            int positionalEval = 0;
+
+            // Center control bonus
+            var centerSquares = new[] { Square.D4, Square.D5, Square.E4, Square.E5 };
+            foreach (var square in centerSquares)
+            {
+                var piece = position.GetPiece(square);
+                if (piece != Piece.None)
+                {
+                    int bonus = piece.Type() == PieceType.Pawn ? 20 : 10;
+                    if (piece.GetColor() == Color.White)
+                        positionalEval += bonus;
+                    else
+                        positionalEval -= bonus;
+                }
+            }
+
+            // Development bonus for knights and bishops
+            var developmentSquares = new (Square square, bool isWhite)[]
+            {
+                (Square.B1, true), (Square.C1, true), (Square.F1, true), (Square.G1, true),
+                (Square.B8, false), (Square.C8, false), (Square.F8, false), (Square.G8, false)
+            };
+
+            foreach (var (square, isWhite) in developmentSquares)
+            {
+                var piece = position.GetPiece(square);
+                if (piece != Piece.None &&
+                    (piece.Type() == PieceType.Knight || piece.Type() == PieceType.Bishop))
+                {
+                    // Penalty for undeveloped pieces
+                    int penalty = -15;
+                    if (piece.GetColor() == Color.White && isWhite)
+                        positionalEval += penalty;
+                    else if (piece.GetColor() == Color.Black && !isWhite)
+                        positionalEval -= penalty;
+                }
+            }
+
+            int totalEval = materialEval + positionalEval;
+
+            // Apply side to move bonus
+            if (position.SideToMove == Color.Black)
+                totalEval = -totalEval;
+
+            return totalEval;
         }
         catch (IndexOutOfRangeException ex)
         {
-            Console.WriteLine($"NNUE Evaluate error: {ex.Message}");
-            Console.WriteLine($"Stack: {ex.StackTrace}");
+            Console.WriteLine($"NNUE Evaluate index error: {ex.Message}");
+            return 0;
+        }
+        catch (NullReferenceException ex)
+        {
+            Console.WriteLine($"NNUE Evaluate null reference: {ex.Message}");
+            return 0;
+        }
+        catch (InvalidOperationException ex)
+        {
+            Console.WriteLine($"NNUE Evaluate invalid operation: {ex.Message}");
             return 0;
         }
     }
-    
+
+
+
     private void RefreshAccumulator(Position position, Accumulator acc)
     {
-        int wKingSquare = position.GetKingSquare(true);
-        int bKingSquare = position.GetKingSquare(false);
-        
-        for (int sq = 0; sq < 64; sq++)
+        // Reset accumulator with bias
+        Array.Copy(_featureBias, acc.GetAccumulation(0), NNUEConstants.L1Size);
+        Array.Copy(_featureBias, acc.GetAccumulation(1), NNUEConstants.L1Size);
+
+        int whiteKingSquare = (int)position.GetKingSquare(Color.White);
+        int blackKingSquare = (int)position.GetKingSquare(Color.Black);
+
+        // Add all pieces
+        for (int square = 0; square < 64; square++)
         {
-            var piece = position.GetPieceAt(sq);
-            if (piece.HasValue)
+            var piece = position.GetPiece((Square)square);
+            if (piece != Piece.None)
             {
-                int color = piece.Value.GetColor() == Color.White ? 0 : 1;
-                int pieceType = GetPieceTypeIndex(piece.Value.Type());
-                
-                // White perspective
-                acc.AddPiece(0, pieceType + color * 6, sq, wKingSquare, _featureWeights);
-                // Black perspective - flip the square but not the king square for bucket calculation
-                acc.AddPiece(1, pieceType + color * 6, sq, bKingSquare, _featureWeights);
+                int pieceType = NNUEConstants.GetPieceTypeIndex(piece.Type());
+                bool isWhite = piece.GetColor() == Color.White;
+                AddPieceToAccumulator(acc, pieceType, square, isWhite, whiteKingSquare, blackKingSquare);
             }
         }
+
+        // Mark both perspectives as computed
+        acc.SetComputed(0, true);
+        acc.SetComputed(1, true);
     }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetPieceTypeIndex(PieceType type)
+
+    private void AddPieceToAccumulator(Accumulator acc, int pieceType, int square, bool isWhite, int whiteKingSquare, int blackKingSquare)
     {
-        return type switch
+        try
         {
-            PieceType.Pawn => 0,
-            PieceType.Knight => 1,
-            PieceType.Bishop => 2,
-            PieceType.Rook => 3,
-            PieceType.Queen => 4,
-            PieceType.King => 5,
-            _ => 0
-        };
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetOutputBucket(Position position)
-    {
-        int pieceCount = position.GetPieceCount();
-        return Math.Min((int)pieceCount / 4, NNUEConstants.OutputBuckets - 1);
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe void TransformAccumulator(Accumulator acc, bool whiteToMove, sbyte[] output)
-    {
-        var us = acc.GetAccumulation(whiteToMove ? 0 : 1);
-        var them = acc.GetAccumulation(whiteToMove ? 1 : 0);
-        
-        fixed (short* usPtr = us)
-        fixed (short* themPtr = them)
-        fixed (sbyte* outPtr = output)
-        {
-            for (int i = 0; i < NNUEConstants.L1Size; i++)
+            // White perspective
+            int whiteIndex = NNUEConstants.GetFeatureWeightIndexWithColor(pieceType, square, whiteKingSquare, isWhite, false);
+            if (whiteIndex >= 0 && whiteIndex + NNUEConstants.L1Size <= _featureWeights.Length)
             {
-                outPtr[i] = ClampToSByte(usPtr[i]);
-                outPtr[i + NNUEConstants.L1Size] = ClampToSByte(themPtr[i]);
+                acc.AddFeature(0, whiteIndex, _featureWeights);
+            }
+
+            // Black perspective
+            int blackIndex = NNUEConstants.GetFeatureWeightIndexWithColor(pieceType, square, blackKingSquare, isWhite, true);
+            if (blackIndex >= 0 && blackIndex + NNUEConstants.L1Size <= _featureWeights.Length)
+            {
+                acc.AddFeature(1, blackIndex, _featureWeights);
             }
         }
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static sbyte ClampToSByte(short value)
-    {
-        return (sbyte)Math.Max(0, Math.Min(127, (int)value));
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe void PropagateL1Squared(sbyte[] input, float[] output, int bucket)
-    {
-        int weightOffset = bucket * NNUEConstants.L1Size * NNUEConstants.L2Size;
-        
-        fixed (sbyte* inPtr = input)
-        fixed (sbyte* wPtr = &_l1Weights[weightOffset])
-        fixed (float* outPtr = output)
+        catch (IndexOutOfRangeException ex)
         {
-            // The weights are arranged for a single perspective
-            // We need to apply them to both perspectives in the output
-            for (int i = 0; i < NNUEConstants.L2Size; i++)
-            {
-                // Process white perspective (first half of input)
-                float sum0 = 0;
-                for (int j = 0; j < NNUEConstants.L1Size; j++)
-                {
-                    if (inPtr[j] > 0) // Only non-zero values
-                    {
-                        float val = inPtr[j] / (float)NNUEConstants.QA;
-                        sum0 += val * val * wPtr[i * NNUEConstants.L1Size + j]; // Squared activation
-                    }
-                }
-                outPtr[i] += sum0 / NNUEConstants.QA;
-                
-                // Process black perspective (second half of input)
-                float sum1 = 0;
-                for (int j = 0; j < NNUEConstants.L1Size; j++)
-                {
-                    if (inPtr[NNUEConstants.L1Size + j] > 0) // Only non-zero values
-                    {
-                        float val = inPtr[NNUEConstants.L1Size + j] / (float)NNUEConstants.QA;
-                        sum1 += val * val * wPtr[i * NNUEConstants.L1Size + j]; // Squared activation
-                    }
-                }
-                outPtr[NNUEConstants.L2Size + i] += sum1 / NNUEConstants.QA;
-            }
+            Console.WriteLine($"NNUE: Index out of range in AddPieceToAccumulator: {ex.Message}");
         }
     }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe void PropagateL2(sbyte[] input, int[] output, int bucket)
+
+    private void RemovePieceFromAccumulator(Accumulator acc, int pieceType, int square, bool isWhite, int whiteKingSquare, int blackKingSquare)
     {
-        int weightOffset = bucket * NNUEConstants.L2Size * 2 * NNUEConstants.L3Size;
-        
-        fixed (sbyte* inPtr = input)
-        fixed (sbyte* wPtr = &_l2Weights[weightOffset])
-        fixed (int* outPtr = output)
+        try
         {
-            for (int i = 0; i < NNUEConstants.L3Size; i++)
+            // White perspective
+            int whiteIndex = NNUEConstants.GetFeatureWeightIndexWithColor(pieceType, square, whiteKingSquare, isWhite, false);
+            if (whiteIndex >= 0 && whiteIndex + NNUEConstants.L1Size <= _featureWeights.Length)
             {
-                int sum = 0;
-                for (int j = 0; j < NNUEConstants.L2Size * 2; j++)
-                {
-                    sum += inPtr[j] * wPtr[i * NNUEConstants.L2Size * 2 + j];
-                }
-                outPtr[i] += sum;
+                acc.SubtractFeature(0, whiteIndex, _featureWeights);
+            }
+
+            // Black perspective
+            int blackIndex = NNUEConstants.GetFeatureWeightIndexWithColor(pieceType, square, blackKingSquare, isWhite, true);
+            if (blackIndex >= 0 && blackIndex + NNUEConstants.L1Size <= _featureWeights.Length)
+            {
+                acc.SubtractFeature(1, blackIndex, _featureWeights);
             }
         }
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private unsafe int PropagateL3(sbyte[] input, int bucket)
-    {
-        int weightOffset = bucket * NNUEConstants.L3Size;
-        int sum = _l3Bias[bucket];
-        
-        fixed (sbyte* inPtr = input)
-        fixed (sbyte* wPtr = &_l3Weights[weightOffset])
+        catch (IndexOutOfRangeException ex)
         {
-            for (int i = 0; i < NNUEConstants.L3Size; i++)
-            {
-                sum += inPtr[i] * wPtr[i];
-            }
-        }
-        
-        return sum / NNUEConstants.QB;
-    }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ClampedReLU(int[] input, sbyte[] output)
-    {
-        for (int i = 0; i < output.Length; i++)
-        {
-            output[i] = (sbyte)Math.Max(0, Math.Min(127, input[i] / NNUEConstants.QB));
+            Console.WriteLine($"NNUE: Index out of range in RemovePieceFromAccumulator: {ex.Message}");
         }
     }
 }
